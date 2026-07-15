@@ -1,0 +1,60 @@
+=== WooCommerce Tag-Based Discount Manager ===
+Contributors: antoniaksander
+Tags: woocommerce, discounts, sale, product tags, product categories
+Requires at least: 5.0
+Tested up to: 6.7
+Requires PHP: 7.4
+WC requires at least: 5.0
+WC tested up to: 9.4
+Stable tag: 1.1.0
+License: GPLv2 or later
+License URI: https://www.gnu.org/licenses/gpl-2.0.html
+
+Apply and manage discounts based on product tags or categories, with preview, scheduling, and one-click reversal.
+
+== Description ==
+
+WooCommerce Tag-Based Discount Manager lets you run sitewide sales by product tag or category instead of editing prices product by product.
+
+* Map any product tag or category to a discount percentage
+* Preview which products will be affected, and at what price, before applying anything
+* Apply discounts in bulk with one click
+* Reverse a bulk discount and restore every product's original sale price
+* Schedule automatic apply and reverse times (e.g. start a sale at midnight, end it three days later)
+* Automatically re-evaluates a product's discount when you add, remove, or change its tags
+* Works with simple products and each variation of a variable product
+
+= Design notes =
+
+The plugin does not keep its own price history table or log. It only ever writes to WooCommerce's own `_sale_price` field, plus two small meta keys used to track which rule applied and what the price was beforehand so it can be restored on reversal. Those two meta keys are removed again as soon as a discount is reversed, and everything is cleaned up on uninstall.
+
+== Installation ==
+
+1. Upload the plugin files to `/wp-content/plugins/woocommerce-tag-discount-manager`, or install the zip via Plugins → Add New → Upload Plugin.
+2. Activate the plugin through the "Plugins" screen in WordPress.
+3. Ensure WooCommerce is installed and activated.
+4. Navigate to WooCommerce → Tag Discounts to configure.
+
+== Frequently Asked Questions ==
+
+= Does this touch my products' regular price? =
+
+No. It only ever sets the sale price. Your regular price is never modified, so reversing a discount (or uninstalling the plugin) always restores exactly what was there before.
+
+= What happens if a product already had a manual sale price before I apply a tag discount? =
+
+That price is remembered and restored when you reverse the discount.
+
+= What happens to my data if I uninstall the plugin? =
+
+Uninstalling (not just deactivating) restores every discounted product's prior sale price, then removes the plugin's options and product meta.
+
+== Changelog ==
+
+= 1.1.0 =
+* Add uninstall.php to restore pre-discount prices and clean up all stored data
+* Add GPLv2 license headers and license file
+* Add CI (lint + coding standards) and automated release packaging
+
+= 1.0.0 =
+* Initial working release: discount rules, scheduling, dashboard preview, apply/reverse, auto-update on tag change

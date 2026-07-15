@@ -1,0 +1,24 @@
+{
+    "name": "antoniaksander/woocommerce-tag-discount-manager",
+    "description": "Apply and manage WooCommerce discounts based on product tags or categories, with preview, scheduling, and reversal.",
+    "type": "wordpress-plugin",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": ">=7.4"
+    },
+    "require-dev": {
+        "dealerdirect/phpcodesniffer-composer-installer": "^1.0",
+        "wp-coding-standards/wpcs": "^3.1",
+        "phpcompatibility/phpcompatibility-wp": "^2.1",
+        "squizlabs/php_codesniffer": "^3.10"
+    },
+    "config": {
+        "allow-plugins": {
+            "dealerdirect/phpcodesniffer-composer-installer": true
+        }
+    },
+    "scripts": {
+        "lint": "phpcs",
+        "lint:fix": "phpcbf"
+    }
+}

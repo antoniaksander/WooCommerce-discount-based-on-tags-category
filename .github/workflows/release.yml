@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+env:
+  PLUGIN_SLUG: woocommerce-tag-discount-manager
+
+jobs:
+  build:
+    name: Build and publish release zip
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          coverage: none
+
+      - name: Lint PHP
+        run: |
+          set -e
+          find . -name '*.php' -not -path './vendor/*' -not -path './dist/*' -print0 \
+            | xargs -0 -n1 php -l
+
+      - name: Verify tag matches plugin version headers
+        run: |
+          set -e
+          TAG_VERSION="${GITHUB_REF_NAME#v}"
+          HEADER_VERSION=$(grep -m1 '^ \* Version:' "${PLUGIN_SLUG}.php" | sed -E 's/^ \* Version:[[:space:]]*//')
+          CONST_VERSION=$(grep -m1 "define( 'WC_TAG_DISCOUNT_VERSION'" "${PLUGIN_SLUG}.php" | sed -E "s/.*'([0-9.]+)'.*/\1/")
+          README_VERSION=$(grep -m1 '^Stable tag:' readme.txt | sed -E 's/^Stable tag:[[:space:]]*//')
+
+          echo "Tag: $TAG_VERSION | Header: $HEADER_VERSION | Constant: $CONST_VERSION | readme.txt: $README_VERSION"
+
+          if [ "$TAG_VERSION" != "$HEADER_VERSION" ] || [ "$TAG_VERSION" != "$CONST_VERSION" ] || [ "$TAG_VERSION" != "$README_VERSION" ]; then
+            echo "::error::Version mismatch between git tag and plugin files. Bump them together before tagging."
+            exit 1
+          fi
+
+      - name: Build distributable zip
+        run: |
+          set -e
+          mkdir -p dist
+          git archive --format=zip --prefix="${PLUGIN_SLUG}/" -o "dist/${PLUGIN_SLUG}-${GITHUB_REF_NAME#v}.zip" "${GITHUB_REF_NAME}"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          generate_release_notes: true

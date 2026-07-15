@@ -1,0 +1,34 @@
+<?xml version="1.0"?>
+<ruleset name="WooCommerce Tag Discount Manager">
+    <description>Coding standards for WooCommerce Tag-Based Discount Manager.</description>
+
+    <file>.</file>
+    <exclude-pattern>/vendor/*</exclude-pattern>
+    <exclude-pattern>/dist/*</exclude-pattern>
+    <exclude-pattern>/node_modules/*</exclude-pattern>
+
+    <arg value="sp"/>
+    <arg name="colors"/>
+    <arg name="extensions" value="php"/>
+
+    <config name="minimum_supported_wp_version" value="5.0"/>
+    <config name="testVersion" value="7.4-8.3"/>
+
+    <rule ref="WordPress-Extra">
+        <properties>
+            <property name="custom_capabilities" type="array">
+                <element value="manage_woocommerce"/>
+            </property>
+        </properties>
+    </rule>
+
+    <rule ref="WordPress.WP.I18n">
+        <properties>
+            <property name="text_domain" type="array">
+                <element value="wc-tag-discount"/>
+            </property>
+        </properties>
+    </rule>
+
+    <rule ref="PHPCompatibilityWP"/>
+</ruleset>
