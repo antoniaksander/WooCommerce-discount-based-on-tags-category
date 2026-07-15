@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 5.0
 WC tested up to: 9.4
-Stable tag: 1.1.0
+Stable tag: 1.1.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -50,6 +50,11 @@ That price is remembered and restored when you reverse the discount.
 Uninstalling (not just deactivating) restores every discounted product's prior sale price, then removes the plugin's options and product meta.
 
 == Changelog ==
+
+= 1.1.1 =
+* Fix: a product matching multiple discount rules could end up at a different discount percentage depending on whether it was bulk-applied or auto-updated on save. Both now consistently use the last matching rule.
+* Fix: scheduled apply/reverse times were resolved against PHP's default server timezone instead of the site's configured timezone, which could fire a sale hours early or late. Now resolved via `wp_timezone()`.
+* Fix: the Dashboard preview computed its "before/after" price differently from the real apply logic, so the numbers shown could disagree with what was actually applied if another plugin filtered displayed prices. Both now share one price-resolution method.
 
 = 1.1.0 =
 * Add uninstall.php to restore pre-discount prices and clean up all stored data

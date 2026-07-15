@@ -58,6 +58,37 @@ class WC_Tag_Discount_Manager {
 		return in_array( $discount, array( 10, 20, 30 ), true ) ? 'tag-' . $discount : 'tag-custom';
 	}
 
+	/**
+	 * The one place that resolves "the price a discount is calculated from". Used by
+	 * both the Dashboard preview and the real apply logic so what a merchant previews
+	 * is guaranteed to match what actually gets written, regardless of any other
+	 * plugin filtering the display ('view' context) price.
+	 */
+	private function get_discountable_regular_price( $product ) {
+		$regular_price = $product->get_regular_price( 'edit' );
+
+		return ( '' !== $regular_price && is_numeric( $regular_price ) ) ? (float) $regular_price : null;
+	}
+
+	/**
+	 * Resolve a <input type="datetime-local"> value (naive, no timezone) against the
+	 * site's configured timezone rather than PHP's default one, since
+	 * wp_schedule_single_event() requires a true UTC timestamp.
+	 */
+	private function schedule_datetime_to_timestamp( $datetime_string ) {
+		if ( '' === $datetime_string ) {
+			return false;
+		}
+
+		try {
+			$date = new DateTime( $datetime_string, wp_timezone() );
+		} catch ( Exception $e ) {
+			return false;
+		}
+
+		return $date->getTimestamp();
+	}
+
 	public function setup_scheduled_events() {
 		$schedule = get_option( 'wc_tag_discount_schedule', array() );
 
@@ -67,16 +98,16 @@ class WC_Tag_Discount_Manager {
 
 		// Schedule apply event
 		if ( ! empty( $schedule['apply_enabled'] ) && ! empty( $schedule['apply_datetime'] ) ) {
-			$timestamp = strtotime( $schedule['apply_datetime'] );
-			if ( $timestamp > time() ) {
+			$timestamp = $this->schedule_datetime_to_timestamp( $schedule['apply_datetime'] );
+			if ( $timestamp && $timestamp > time() ) {
 				wp_schedule_single_event( $timestamp, 'wc_tag_discount_apply_scheduled' );
 			}
 		}
 
 		// Schedule reverse event
 		if ( ! empty( $schedule['reverse_enabled'] ) && ! empty( $schedule['reverse_datetime'] ) ) {
-			$timestamp = strtotime( $schedule['reverse_datetime'] );
-			if ( $timestamp > time() ) {
+			$timestamp = $this->schedule_datetime_to_timestamp( $schedule['reverse_datetime'] );
+			if ( $timestamp && $timestamp > time() ) {
 				wp_schedule_single_event( $timestamp, 'wc_tag_discount_reverse_scheduled' );
 			}
 		}
@@ -199,9 +230,9 @@ class WC_Tag_Discount_Manager {
 						if ( ! $product ) {
 							continue;
 						}
-						$regular_price = $product->get_regular_price();
-						$new_price     = ( '' !== $regular_price && is_numeric( $regular_price ) )
-							? round( (float) $regular_price * ( 1 - $rule['discount'] / 100 ), wc_get_price_decimals() )
+						$regular_price = $this->get_discountable_regular_price( $product );
+						$new_price     = ( null !== $regular_price )
+							? round( $regular_price * ( 1 - $rule['discount'] / 100 ), wc_get_price_decimals() )
 							: null;
 						?>
 						<div class="product-item">
@@ -451,7 +482,7 @@ class WC_Tag_Discount_Manager {
 		);
 
 		foreach ( array( 'apply_datetime', 'reverse_datetime' ) as $field ) {
-			if ( '' !== $schedule[ $field ] && false === strtotime( $schedule[ $field ] ) ) {
+			if ( '' !== $schedule[ $field ] && false === $this->schedule_datetime_to_timestamp( $schedule[ $field ] ) ) {
 				$schedule[ $field ] = '';
 			}
 		}
@@ -533,11 +564,13 @@ class WC_Tag_Discount_Manager {
 		$matched_rule = null;
 		$matched_key  = null;
 
+		// Iterate every rule (not break on first match) so a product matching several
+		// rules ends up on the same one that bulk apply_discounts() would leave it on:
+		// the last matching rule in rule order.
 		foreach ( $rules as $rule_key => $rule ) {
 			if ( has_term( $rule['slug'], $rule['taxonomy'], $post_id ) ) {
 				$matched_rule = $rule;
 				$matched_key  = $rule_key;
-				break;
 			}
 		}
 
@@ -565,8 +598,8 @@ class WC_Tag_Discount_Manager {
 	 * the sale-price field, never the regular price.
 	 */
 	private function apply_discount_to_product( $product, $rule_key, $rule ) {
-		$regular_price = $product->get_regular_price( 'edit' );
-		if ( '' === $regular_price || ! is_numeric( $regular_price ) ) {
+		$regular_price = $this->get_discountable_regular_price( $product );
+		if ( null === $regular_price ) {
 			return false;
 		}
 
@@ -575,7 +608,7 @@ class WC_Tag_Discount_Manager {
 			$product->update_meta_data( self::META_PREV_SALE, $product->get_sale_price( 'edit' ) );
 		}
 
-		$discounted = round( (float) $regular_price * ( 1 - ( $rule['discount'] / 100 ) ), wc_get_price_decimals() );
+		$discounted = round( $regular_price * ( 1 - ( $rule['discount'] / 100 ) ), wc_get_price_decimals() );
 
 		$product->set_sale_price( $discounted );
 		$product->update_meta_data( self::META_RULE, $rule_key );
