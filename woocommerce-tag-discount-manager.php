@@ -3,7 +3,7 @@
  * Plugin Name: WooCommerce Tag-Based Discount Manager
  * Plugin URI: https://github.com/antoniaksander/WooCommerce-discount-based-on-tags-category
  * Description: Apply and manage discounts based on product tags with preview, scheduling, and reversal options
- * Version: 1.1.1
+ * Version: 1.2.0
  * Author: antoniaksander
  * Author URI: https://github.com/antoniaksander
  * Text Domain: wc-tag-discount
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WC_TAG_DISCOUNT_VERSION', '1.1.1' );
+define( 'WC_TAG_DISCOUNT_VERSION', '1.2.0' );
 define( 'WC_TAG_DISCOUNT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WC_TAG_DISCOUNT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -73,11 +73,13 @@ add_action(
 
 		$messages = array(
 			// translators: %d: number of products a discount was applied to.
-			'applied'        => sprintf( _n( 'Discount applied to %d product.', 'Discounts applied to %d products.', $count, 'wc-tag-discount' ), $count ),
+			'applied'            => sprintf( _n( 'Discount applied to %d product.', 'Discounts applied to %d products.', $count, 'wc-tag-discount' ), $count ),
 			// translators: %d: number of products a discount was removed from.
-			'reversed'       => sprintf( _n( 'Discount removed from %d product.', 'Discounts removed from %d products.', $count, 'wc-tag-discount' ), $count ),
-			'rules_saved'    => __( 'Discount rules saved.', 'wc-tag-discount' ),
-			'schedule_saved' => __( 'Schedule saved.', 'wc-tag-discount' ),
+			'reversed'           => sprintf( _n( 'Discount removed from %d product.', 'Discounts removed from %d products.', $count, 'wc-tag-discount' ), $count ),
+			'rules_saved'        => __( 'Discount rules saved.', 'wc-tag-discount' ),
+			'schedule_saved'     => __( 'Schedule saved.', 'wc-tag-discount' ),
+			'auto_apply_paused'  => __( 'Auto-apply paused. It will resume on its own when the timer runs out.', 'wc-tag-discount' ),
+			'auto_apply_resumed' => __( 'Auto-apply resumed.', 'wc-tag-discount' ),
 		);
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, only selects which notice to render.

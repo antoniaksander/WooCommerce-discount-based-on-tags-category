@@ -6,7 +6,7 @@ Tested up to: 6.7
 Requires PHP: 7.4
 WC requires at least: 5.0
 WC tested up to: 9.4
-Stable tag: 1.1.1
+Stable tag: 1.2.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -23,6 +23,7 @@ WooCommerce Tag-Based Discount Manager lets you run sitewide sales by product ta
 * Schedule automatic apply and reverse times (e.g. start a sale at midnight, end it three days later)
 * Automatically re-evaluates a product's discount when you add, remove, or change its tags
 * Works with simple products and each variation of a variable product
+* Pause auto-apply before a large bulk import so it doesn't double the write cost per product; resumes on its own on a timer even if you forget
 
 = Design notes =
 
@@ -49,7 +50,14 @@ That price is remembered and restored when you reverse the discount.
 
 Uninstalling (not just deactivating) restores every discounted product's prior sale price, then removes the plugin's options and product meta.
 
+= Will a bulk import slow down because of this plugin? =
+
+It can, if many of the imported products carry a discounted tag or category — each match triggers a full product save on top of the import's own save. Before a large import, use "Pause Auto-Apply" on the Dashboard (WooCommerce → Tag Discounts). New products won't be auto-discounted while paused; run "Apply Discounts Now" once when the import finishes. The pause resumes on its own after the timer you chose, even if you forget to turn it back on, and a reminder banner appears throughout wp-admin the whole time it's active.
+
 == Changelog ==
+
+= 1.2.0 =
+* Add a pausable auto-apply, for bulk imports: pausing stops the per-product auto-discount hook from doing extra work on every save, self-expires on a timer (1-24 hours) so it can't be left off by accident, and shows a sitewide admin reminder with a one-click resume while active.
 
 = 1.1.1 =
 * Fix: a product matching multiple discount rules could end up at a different discount percentage depending on whether it was bulk-applied or auto-updated on save. Both now consistently use the last matching rule.

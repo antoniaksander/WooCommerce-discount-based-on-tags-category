@@ -6,8 +6,9 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class WC_Tag_Discount_Manager {
 
-	const META_RULE      = '_wc_tag_discount_rule';
-	const META_PREV_SALE = '_wc_tag_discount_prev_sale_price';
+	const META_RULE       = '_wc_tag_discount_rule';
+	const META_PREV_SALE  = '_wc_tag_discount_prev_sale_price';
+	const OPT_PAUSE_UNTIL = 'wc_tag_discount_pause_until';
 
 	public function __construct() {
 		add_action( 'admin_menu', array( $this, 'add_admin_menu' ) );
@@ -15,7 +16,10 @@ class WC_Tag_Discount_Manager {
 		add_action( 'admin_post_reverse_tag_discounts', array( $this, 'handle_reverse_discounts' ) );
 		add_action( 'admin_post_save_discount_rules', array( $this, 'handle_save_rules' ) );
 		add_action( 'admin_post_save_schedule', array( $this, 'handle_save_schedule' ) );
+		add_action( 'admin_post_pause_tag_discount_auto_apply', array( $this, 'handle_pause_auto_apply' ) );
+		add_action( 'admin_post_resume_tag_discount_auto_apply', array( $this, 'handle_resume_auto_apply' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_styles' ) );
+		add_action( 'admin_notices', array( $this, 'render_pause_notice' ) );
 
 		// Auto-update when products are saved
 		add_action( 'save_post_product', array( $this, 'auto_update_product_discount' ), 10, 1 );
@@ -50,6 +54,28 @@ class WC_Tag_Discount_Manager {
 		$rules = get_option( 'wc_tag_discount_rules', $default_rules );
 
 		return is_array( $rules ) ? $rules : $default_rules;
+	}
+
+	/**
+	 * Whether auto-apply-on-save is currently paused (e.g. during a bulk import).
+	 * Correctness never depends on WP-Cron firing: this is a plain wall-clock
+	 * comparison against a stored "resume at" timestamp, so a pause always lifts
+	 * itself on time even if nothing ever visits the site to trigger cron. Returns
+	 * the resume timestamp while paused, or false once it's expired (also lazily
+	 * deleting the now-stale option so it doesn't just sit there forever).
+	 */
+	private function is_auto_apply_paused() {
+		$paused_until = (int) get_option( self::OPT_PAUSE_UNTIL, 0 );
+
+		if ( $paused_until > time() ) {
+			return $paused_until;
+		}
+
+		if ( $paused_until ) {
+			delete_option( self::OPT_PAUSE_UNTIL );
+		}
+
+		return false;
 	}
 
 	private function discount_badge_class( $discount ) {
@@ -218,6 +244,8 @@ class WC_Tag_Discount_Manager {
 			</div>
 		</div>
 
+		<?php $this->render_bulk_operations_card(); ?>
+
 		<div class="discount-card">
 			<h3><?php esc_html_e( 'Preview', 'wc-tag-discount' ); ?></h3>
 			<?php if ( empty( $preview ) ) : ?>
@@ -252,6 +280,46 @@ class WC_Tag_Discount_Manager {
 						</div>
 					<?php endforeach; ?>
 				</div>
+			<?php endif; ?>
+		</div>
+		<?php
+	}
+
+	private function render_bulk_operations_card() {
+		$paused_until = $this->is_auto_apply_paused();
+		?>
+		<div class="discount-card">
+			<h3><?php esc_html_e( 'Bulk Operations', 'wc-tag-discount' ); ?></h3>
+			<?php if ( $paused_until ) : ?>
+				<p>
+					<?php
+					printf(
+						/* translators: %s: human-readable time remaining, e.g. "3 hours". */
+						esc_html__( 'Auto-apply is paused for %s. New or edited products will not get their tag/category discount applied automatically until then.', 'wc-tag-discount' ),
+						esc_html( human_time_diff( time(), $paused_until ) )
+					);
+					?>
+				</p>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+					<input type="hidden" name="action" value="resume_tag_discount_auto_apply">
+					<?php wp_nonce_field( 'wc_tag_discount_resume' ); ?>
+					<button type="submit" class="button"><?php esc_html_e( 'Resume Auto-Apply Now', 'wc-tag-discount' ); ?></button>
+				</form>
+			<?php else : ?>
+				<p><?php esc_html_e( 'Before a large bulk import, pause auto-apply so each newly added product doesn\'t trigger an extra save. It resumes on its own when the timer runs out, even if you forget — just run "Apply Discounts Now" above once your import finishes.', 'wc-tag-discount' ); ?></p>
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+					<input type="hidden" name="action" value="pause_tag_discount_auto_apply">
+					<?php wp_nonce_field( 'wc_tag_discount_pause' ); ?>
+					<label for="pause_hours"><?php esc_html_e( 'Pause for:', 'wc-tag-discount' ); ?></label>
+					<select name="pause_hours" id="pause_hours">
+						<option value="1"><?php esc_html_e( '1 hour', 'wc-tag-discount' ); ?></option>
+						<option value="2"><?php esc_html_e( '2 hours', 'wc-tag-discount' ); ?></option>
+						<option value="4" selected><?php esc_html_e( '4 hours', 'wc-tag-discount' ); ?></option>
+						<option value="8"><?php esc_html_e( '8 hours', 'wc-tag-discount' ); ?></option>
+						<option value="24"><?php esc_html_e( '24 hours', 'wc-tag-discount' ); ?></option>
+					</select>
+					<button type="submit" class="button"><?php esc_html_e( 'Pause Auto-Apply', 'wc-tag-discount' ); ?></button>
+				</form>
 			<?php endif; ?>
 		</div>
 		<?php
@@ -503,6 +571,81 @@ class WC_Tag_Discount_Manager {
 		exit;
 	}
 
+	public function handle_pause_auto_apply() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'wc-tag-discount' ) );
+		}
+		check_admin_referer( 'wc_tag_discount_pause' );
+
+		$hours = isset( $_POST['pause_hours'] ) ? (float) wp_unslash( $_POST['pause_hours'] ) : 4;
+		$hours = max( 0.5, min( 24, $hours ) );
+
+		update_option( self::OPT_PAUSE_UNTIL, time() + (int) round( $hours * HOUR_IN_SECONDS ) );
+
+		wp_safe_redirect(
+			add_query_arg(
+				array(
+					'page'    => 'tag-discount-manager',
+					'message' => 'auto_apply_paused',
+				),
+				admin_url( 'admin.php' )
+			)
+		);
+		exit;
+	}
+
+	public function handle_resume_auto_apply() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'wc-tag-discount' ) );
+		}
+		check_admin_referer( 'wc_tag_discount_resume' );
+
+		delete_option( self::OPT_PAUSE_UNTIL );
+
+		wp_safe_redirect(
+			add_query_arg(
+				array(
+					'page'    => 'tag-discount-manager',
+					'message' => 'auto_apply_resumed',
+				),
+				admin_url( 'admin.php' )
+			)
+		);
+		exit;
+	}
+
+	/**
+	 * Sitewide reminder while auto-apply is paused, so pausing it before a bulk
+	 * import can never go unnoticed. Skipped on our own settings page, which
+	 * already shows the same status via the Dashboard's Bulk Operations card.
+	 */
+	public function render_pause_notice() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+
+		$paused_until = $this->is_auto_apply_paused();
+		if ( ! $paused_until ) {
+			return;
+		}
+
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( $screen && 'woocommerce_page_tag-discount-manager' === $screen->id ) {
+			return;
+		}
+
+		$resume_url = wp_nonce_url( admin_url( 'admin-post.php?action=resume_tag_discount_auto_apply' ), 'wc_tag_discount_resume' );
+
+		echo '<div class="notice notice-warning"><p>';
+		printf(
+			/* translators: %s: human-readable time remaining, e.g. "3 hours". */
+			esc_html__( 'Tag Discount auto-apply is paused for %s (e.g. for a bulk import) — new or edited products will not get their tag/category discount applied automatically until then. Run "Apply Discounts Now" from WooCommerce → Tag Discounts when you\'re done, or:', 'wc-tag-discount' ),
+			esc_html( human_time_diff( time(), $paused_until ) )
+		);
+		echo ' <a href="' . esc_url( $resume_url ) . '" class="button button-small">' . esc_html__( 'Resume auto-apply now', 'wc-tag-discount' ) . '</a>';
+		echo '</p></div>';
+	}
+
 	public function apply_discounts() {
 		$rules    = $this->get_discount_rules();
 		$affected = array();
@@ -544,6 +687,10 @@ class WC_Tag_Discount_Manager {
 	}
 
 	public function auto_update_product_discount( $post_id ) {
+		if ( $this->is_auto_apply_paused() ) {
+			return;
+		}
+
 		if ( wp_is_post_autosave( $post_id ) || wp_is_post_revision( $post_id ) ) {
 			return;
 		}
