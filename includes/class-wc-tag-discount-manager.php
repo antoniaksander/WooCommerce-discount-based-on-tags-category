@@ -450,12 +450,13 @@ class WC_Tag_Discount_Manager {
 					<div class="rule-field">
 						<label><?php esc_html_e( 'Taxonomy', 'wc-tag-discount' ); ?></label>
 						<select name="taxonomy" class="rule-taxonomy-select">
-							<option value="product_tag" <?php selected( $taxonomy, 'product_tag' ); ?>><?php esc_html_e( 'Product Tag', 'wc-tag-discount' ); ?></option>
-							<option value="product_cat" <?php selected( $taxonomy, 'product_cat' ); ?>><?php esc_html_e( 'Product Category', 'wc-tag-discount' ); ?></option>
+							<?php foreach ( $this->get_selectable_taxonomies() as $tax_slug => $tax_label ) : ?>
+								<option value="<?php echo esc_attr( $tax_slug ); ?>" <?php selected( $taxonomy, $tax_slug ); ?>><?php echo esc_html( $tax_label ); ?></option>
+							<?php endforeach; ?>
 						</select>
 					</div>
 					<div class="rule-field">
-						<label><?php esc_html_e( 'Tag / Category', 'wc-tag-discount' ); ?></label>
+						<label><?php esc_html_e( 'Value', 'wc-tag-discount' ); ?></label>
 						<select name="slug" class="wc-tag-discount-term-search" data-placeholder="<?php esc_attr_e( 'Search or type to create new…', 'wc-tag-discount' ); ?>" style="width:100%">
 							<?php if ( '' !== $slug ) : ?>
 								<option value="<?php echo esc_attr( $slug ); ?>" selected><?php echo esc_html( $this->get_term_label( $taxonomy, $slug ) ); ?></option>
@@ -528,6 +529,25 @@ class WC_Tag_Discount_Manager {
 		return ( $term && ! is_wp_error( $term ) ) ? $term->name : $slug;
 	}
 
+	/**
+	 * Taxonomies a rule can target: every taxonomy actually registered on products
+	 * with an admin UI (tags, categories, brands if a brand plugin is active,
+	 * attributes used as taxonomies, etc.), not a hardcoded product_tag/product_cat
+	 * pair. Keeps this working with whatever taxonomies a given store has without
+	 * needing a code change for each brand plugin's own taxonomy name.
+	 */
+	private function get_selectable_taxonomies() {
+		$taxonomies = array();
+
+		foreach ( get_object_taxonomies( 'product', 'objects' ) as $taxonomy ) {
+			if ( $taxonomy->show_ui ) {
+				$taxonomies[ $taxonomy->name ] = $taxonomy->label;
+			}
+		}
+
+		return $taxonomies;
+	}
+
 	public function handle_apply_discounts() {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_die( esc_html__( 'You do not have permission to do this.', 'wc-tag-discount' ) );
@@ -576,7 +596,7 @@ class WC_Tag_Discount_Manager {
 		}
 		check_admin_referer( 'wc_tag_discount_save_rule' );
 
-		$allowed_taxonomies = array( 'product_tag', 'product_cat' );
+		$allowed_taxonomies = array_keys( $this->get_selectable_taxonomies() );
 		$old_key            = isset( $_POST['rule_key'] ) ? sanitize_text_field( wp_unslash( $_POST['rule_key'] ) ) : '';
 
 		$taxonomy = ( isset( $_POST['taxonomy'] ) && in_array( wp_unslash( $_POST['taxonomy'] ), $allowed_taxonomies, true ) )

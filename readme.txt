@@ -6,7 +6,7 @@ Tested up to: 7.0.2
 Requires PHP: 7.4
 WC requires at least: 5.0
 WC tested up to: 10.7
-Stable tag: 1.4.0
+Stable tag: 1.5.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -16,7 +16,7 @@ Apply and manage discounts based on product tags or categories, with preview, sc
 
 WooCommerce Tag-Based Discount Manager lets you run sitewide sales by product tag or category instead of editing prices product by product.
 
-* Map any product tag or category to a discount percentage, with a live search box that can create a brand new tag/category on the spot
+* Map any product tag, category, brand, or attribute (whatever your store actually has taxonomies for) to a discount percentage, with a live search box that can create a brand new term on the spot
 * Preview which products will be affected, and at what price, before applying anything — click straight through to a product's edit screen from the preview
 * See at a glance how many products match each rule, and how many are currently discounted under it
 * Apply or reverse a rule immediately, in bulk across every rule, or on its own schedule — each rule's apply/reverse time is independent, or leave it unscheduled and toggle it manually whenever you want
@@ -54,6 +54,9 @@ Uninstalling (not just deactivating) restores every discounted product's prior s
 It can, if many of the imported products carry a discounted tag or category — each match triggers a full product save on top of the import's own save. Before a large import, use "Pause Auto-Apply" on the Dashboard (WooCommerce → Tag Discounts). New products won't be auto-discounted while paused; run "Apply Discounts Now" once when the import finishes. The pause resumes on its own after the timer you chose, even if you forget to turn it back on, and a reminder banner appears throughout wp-admin the whole time it's active.
 
 == Changelog ==
+
+= 1.5.0 =
+* Add support for discounting by any product taxonomy your store actually has, not just tags and categories — brands (if a brands plugin is active), attributes used as taxonomies, or any other custom taxonomy registered on products. The taxonomy list in the Rules tab is now built from what's really on the site, so this needs no configuration.
 
 = 1.4.0 =
 * Add one-click updates: WordPress's Plugins page now shows a normal "update available" notice and "Update Now" link for new releases, the same as any wp.org-hosted plugin, instead of requiring a manual download-and-re-upload. Checks the GitHub releases feed and always installs from the built release asset (never GitHub's auto-generated source zip, which uses the wrong folder name and would install as a duplicate plugin instead of updating in place).
