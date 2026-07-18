@@ -2,8 +2,8 @@
 /**
  * Plugin Name: WooCommerce Tag-Based Discount Manager
  * Plugin URI: https://github.com/antoniaksander/WooCommerce-discount-based-on-tags-category
- * Description: Apply and manage discounts based on product tags with preview, scheduling, and reversal options
- * Version: 1.2.0
+ * Description: Apply and manage discounts based on product tags or categories, with preview, per-rule scheduling, and reversal
+ * Version: 1.3.0
  * Author: antoniaksander
  * Author URI: https://github.com/antoniaksander
  * Text Domain: wc-tag-discount
@@ -12,7 +12,7 @@
  * Requires PHP: 7.4
  * Requires Plugins: woocommerce
  * WC requires at least: 5.0
- * WC tested up to: 9.4
+ * WC tested up to: 10.7
  * License: GPL v2 or later
  * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  */
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WC_TAG_DISCOUNT_VERSION', '1.2.0' );
+define( 'WC_TAG_DISCOUNT_VERSION', '1.3.0' );
 define( 'WC_TAG_DISCOUNT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WC_TAG_DISCOUNT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -76,8 +76,8 @@ add_action(
 			'applied'            => sprintf( _n( 'Discount applied to %d product.', 'Discounts applied to %d products.', $count, 'wc-tag-discount' ), $count ),
 			// translators: %d: number of products a discount was removed from.
 			'reversed'           => sprintf( _n( 'Discount removed from %d product.', 'Discounts removed from %d products.', $count, 'wc-tag-discount' ), $count ),
-			'rules_saved'        => __( 'Discount rules saved.', 'wc-tag-discount' ),
-			'schedule_saved'     => __( 'Schedule saved.', 'wc-tag-discount' ),
+			'rules_saved'        => __( 'Rule saved.', 'wc-tag-discount' ),
+			'rule_deleted'       => __( 'Rule deleted.', 'wc-tag-discount' ),
 			'auto_apply_paused'  => __( 'Auto-apply paused. It will resume on its own when the timer runs out.', 'wc-tag-discount' ),
 			'auto_apply_resumed' => __( 'Auto-apply resumed.', 'wc-tag-discount' ),
 		);

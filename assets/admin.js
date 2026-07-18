@@ -1,22 +1,56 @@
-( function () {
-	document.addEventListener( 'click', function ( event ) {
-		if ( event.target.id === 'add-rule-row' ) {
-			var table = document.querySelector( '#wc-tag-discount-rules-table tbody' );
-			var lastRow = table.querySelector( '.rule-row:last-child' );
-			var newRow = lastRow.cloneNode( true );
+( function ( $ ) {
+	'use strict';
 
-			newRow.querySelectorAll( 'input' ).forEach( function ( input ) {
-				input.value = '';
-			} );
+	if ( typeof $ === 'undefined' || typeof wc_enhanced_select_params === 'undefined' ) {
+		return;
+	}
 
-			table.appendChild( newRow );
-		}
+	function currentTaxonomy( $select ) {
+		return $select.closest( '.rule-row-grid' ).find( 'select.rule-taxonomy-select' ).val();
+	}
 
-		if ( event.target.classList.contains( 'remove-rule-row' ) ) {
-			var rows = document.querySelectorAll( '.rule-row' );
-			if ( rows.length > 1 ) {
-				event.target.closest( '.rule-row' ).remove();
+	function initTermSearch() {
+		$( 'select.wc-tag-discount-term-search' ).each( function () {
+			var $select = $( this );
+
+			if ( $select.hasClass( 'enhanced' ) || typeof $.fn.selectWoo === 'undefined' ) {
+				return;
 			}
-		}
+
+			$select.selectWoo( {
+				allowClear: true,
+				placeholder: $select.data( 'placeholder' ) || '',
+				minimumInputLength: 1,
+				tags: true,
+				escapeMarkup: function ( m ) {
+					return m;
+				},
+				ajax: {
+					url: wc_enhanced_select_params.ajax_url,
+					dataType: 'json',
+					delay: 250,
+					data: function ( params ) {
+						return {
+							term: params.term,
+							taxonomy: currentTaxonomy( $select ),
+							action: 'woocommerce_json_search_taxonomy_terms',
+							security: wc_enhanced_select_params.search_taxonomy_terms_nonce
+						};
+					},
+					processResults: function ( data ) {
+						var terms = [];
+						$.each( data || {}, function ( id, term ) {
+							terms.push( { id: term.slug, text: term.name } );
+						} );
+						return { results: terms };
+					},
+					cache: true
+				}
+			} ).addClass( 'enhanced' );
+		} );
+	}
+
+	$( function () {
+		initTermSearch();
 	} );
-} )();
+} )( jQuery );

@@ -8,14 +8,17 @@ class WC_Tag_Discount_Manager {
 
 	const META_RULE       = '_wc_tag_discount_rule';
 	const META_PREV_SALE  = '_wc_tag_discount_prev_sale_price';
+	const OPT_RULES       = 'wc_tag_discount_rules';
 	const OPT_PAUSE_UNTIL = 'wc_tag_discount_pause_until';
 
 	public function __construct() {
 		add_action( 'admin_menu', array( $this, 'add_admin_menu' ) );
 		add_action( 'admin_post_apply_tag_discounts', array( $this, 'handle_apply_discounts' ) );
 		add_action( 'admin_post_reverse_tag_discounts', array( $this, 'handle_reverse_discounts' ) );
-		add_action( 'admin_post_save_discount_rules', array( $this, 'handle_save_rules' ) );
-		add_action( 'admin_post_save_schedule', array( $this, 'handle_save_schedule' ) );
+		add_action( 'admin_post_save_tag_discount_rule', array( $this, 'handle_save_rule' ) );
+		add_action( 'admin_post_delete_tag_discount_rule', array( $this, 'handle_delete_rule' ) );
+		add_action( 'admin_post_apply_tag_discount_rule', array( $this, 'handle_apply_rule' ) );
+		add_action( 'admin_post_reverse_tag_discount_rule', array( $this, 'handle_reverse_rule' ) );
 		add_action( 'admin_post_pause_tag_discount_auto_apply', array( $this, 'handle_pause_auto_apply' ) );
 		add_action( 'admin_post_resume_tag_discount_auto_apply', array( $this, 'handle_resume_auto_apply' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_styles' ) );
@@ -24,36 +27,103 @@ class WC_Tag_Discount_Manager {
 		// Auto-update when products are saved
 		add_action( 'save_post_product', array( $this, 'auto_update_product_discount' ), 10, 1 );
 
-		// Scheduled actions
-		add_action( 'wc_tag_discount_apply_scheduled', array( $this, 'apply_discounts' ) );
-		add_action( 'wc_tag_discount_reverse_scheduled', array( $this, 'reverse_discounts' ) );
+		// Per-rule scheduled actions, fired with the rule key as the single argument.
+		add_action( 'wc_tag_discount_apply_rule_scheduled', array( $this, 'handle_apply_rule_scheduled' ), 10, 1 );
+		add_action( 'wc_tag_discount_reverse_rule_scheduled', array( $this, 'handle_reverse_rule_scheduled' ), 10, 1 );
 
 		// Check and setup scheduled events
 		add_action( 'init', array( $this, 'setup_scheduled_events' ) );
 	}
 
+	/**
+	 * Loads and normalizes stored rules. Defensive against older/malformed shapes
+	 * (e.g. entries missing 'slug', where the array key itself was the slug) so a
+	 * pre-existing option value from an earlier version of this plugin doesn't throw
+	 * warnings or silently stop matching. Self-heals once: normalized data (and any
+	 * one-time migration from the old global schedule option) is written back only
+	 * when something actually needed fixing, not on every read.
+	 */
 	private function get_discount_rules() {
 		$default_rules = array(
 			'product_tag_sale-10' => array(
-				'slug'     => 'sale-10',
-				'discount' => 10,
-				'taxonomy' => 'product_tag',
+				'slug'             => 'sale-10',
+				'taxonomy'         => 'product_tag',
+				'discount'         => 10,
+				'apply_datetime'   => '',
+				'reverse_datetime' => '',
 			),
 			'product_tag_sale-20' => array(
-				'slug'     => 'sale-20',
-				'discount' => 20,
-				'taxonomy' => 'product_tag',
+				'slug'             => 'sale-20',
+				'taxonomy'         => 'product_tag',
+				'discount'         => 20,
+				'apply_datetime'   => '',
+				'reverse_datetime' => '',
 			),
 			'product_tag_sale-30' => array(
-				'slug'     => 'sale-30',
-				'discount' => 30,
-				'taxonomy' => 'product_tag',
+				'slug'             => 'sale-30',
+				'taxonomy'         => 'product_tag',
+				'discount'         => 30,
+				'apply_datetime'   => '',
+				'reverse_datetime' => '',
 			),
 		);
 
-		$rules = get_option( 'wc_tag_discount_rules', $default_rules );
+		$raw = get_option( self::OPT_RULES, null );
 
-		return is_array( $rules ) ? $rules : $default_rules;
+		if ( null === $raw || ! is_array( $raw ) ) {
+			return $default_rules;
+		}
+
+		$legacy_schedule = get_option( 'wc_tag_discount_schedule', array() );
+		$normalized      = array();
+		$needs_rewrite   = false;
+
+		foreach ( $raw as $key => $rule ) {
+			if ( ! is_array( $rule ) || ! isset( $rule['discount'] ) || ! is_numeric( $rule['discount'] ) ) {
+				$needs_rewrite = true;
+				continue;
+			}
+
+			if ( isset( $rule['slug'] ) && '' !== $rule['slug'] ) {
+				$slug = (string) $rule['slug'];
+			} else {
+				// Older schema used the array key itself as the slug.
+				$slug          = (string) $key;
+				$needs_rewrite = true;
+			}
+
+			$taxonomy = isset( $rule['taxonomy'] ) ? $rule['taxonomy'] : 'product_tag';
+
+			$apply_datetime   = isset( $rule['apply_datetime'] ) ? $rule['apply_datetime'] : '';
+			$reverse_datetime = isset( $rule['reverse_datetime'] ) ? $rule['reverse_datetime'] : '';
+
+			// One-time migration: carry the old global schedule onto rules that don't have their own.
+			if ( '' === $apply_datetime && ! empty( $legacy_schedule['apply_enabled'] ) && ! empty( $legacy_schedule['apply_datetime'] ) ) {
+				$apply_datetime = $legacy_schedule['apply_datetime'];
+				$needs_rewrite  = true;
+			}
+			if ( '' === $reverse_datetime && ! empty( $legacy_schedule['reverse_enabled'] ) && ! empty( $legacy_schedule['reverse_datetime'] ) ) {
+				$reverse_datetime = $legacy_schedule['reverse_datetime'];
+				$needs_rewrite    = true;
+			}
+
+			$normalized[ $taxonomy . '_' . $slug ] = array(
+				'slug'             => $slug,
+				'taxonomy'         => $taxonomy,
+				'discount'         => (float) $rule['discount'],
+				'apply_datetime'   => $apply_datetime,
+				'reverse_datetime' => $reverse_datetime,
+			);
+		}
+
+		if ( $needs_rewrite ) {
+			update_option( self::OPT_RULES, $normalized );
+			if ( ! empty( $legacy_schedule ) ) {
+				delete_option( 'wc_tag_discount_schedule' );
+			}
+		}
+
+		return $normalized;
 	}
 
 	/**
@@ -115,28 +185,44 @@ class WC_Tag_Discount_Manager {
 		return $date->getTimestamp();
 	}
 
+	/**
+	 * (Re)schedules every rule's optional apply/reverse timer. Still just the one
+	 * options row for rule data, and WP-Cron itself keeps every scheduled event
+	 * (from every plugin on the site) in a single "cron" option regardless of how
+	 * many rules have a timer set -- adding per-rule schedules doesn't create new
+	 * rows or tables. Every event here is one-time (wp_schedule_single_event), never
+	 * a recurring job, and disappears the moment it fires.
+	 */
 	public function setup_scheduled_events() {
-		$schedule = get_option( 'wc_tag_discount_schedule', array() );
+		wp_clear_scheduled_hook( 'wc_tag_discount_apply_rule_scheduled' );
+		wp_clear_scheduled_hook( 'wc_tag_discount_reverse_rule_scheduled' );
 
-		// Clear existing scheduled events
-		wp_clear_scheduled_hook( 'wc_tag_discount_apply_scheduled' );
-		wp_clear_scheduled_hook( 'wc_tag_discount_reverse_scheduled' );
+		foreach ( $this->get_discount_rules() as $rule_key => $rule ) {
+			if ( '' !== $rule['apply_datetime'] ) {
+				$timestamp = $this->schedule_datetime_to_timestamp( $rule['apply_datetime'] );
+				if ( $timestamp && $timestamp > time() ) {
+					wp_schedule_single_event( $timestamp, 'wc_tag_discount_apply_rule_scheduled', array( $rule_key ) );
+				}
+			}
 
-		// Schedule apply event
-		if ( ! empty( $schedule['apply_enabled'] ) && ! empty( $schedule['apply_datetime'] ) ) {
-			$timestamp = $this->schedule_datetime_to_timestamp( $schedule['apply_datetime'] );
-			if ( $timestamp && $timestamp > time() ) {
-				wp_schedule_single_event( $timestamp, 'wc_tag_discount_apply_scheduled' );
+			if ( '' !== $rule['reverse_datetime'] ) {
+				$timestamp = $this->schedule_datetime_to_timestamp( $rule['reverse_datetime'] );
+				if ( $timestamp && $timestamp > time() ) {
+					wp_schedule_single_event( $timestamp, 'wc_tag_discount_reverse_rule_scheduled', array( $rule_key ) );
+				}
 			}
 		}
+	}
 
-		// Schedule reverse event
-		if ( ! empty( $schedule['reverse_enabled'] ) && ! empty( $schedule['reverse_datetime'] ) ) {
-			$timestamp = $this->schedule_datetime_to_timestamp( $schedule['reverse_datetime'] );
-			if ( $timestamp && $timestamp > time() ) {
-				wp_schedule_single_event( $timestamp, 'wc_tag_discount_reverse_scheduled' );
-			}
+	public function handle_apply_rule_scheduled( $rule_key ) {
+		$rules = $this->get_discount_rules();
+		if ( isset( $rules[ $rule_key ] ) ) {
+			$this->apply_rule( $rule_key, $rules[ $rule_key ] );
 		}
+	}
+
+	public function handle_reverse_rule_scheduled( $rule_key ) {
+		$this->reverse_rule( $rule_key );
 	}
 
 	public function add_admin_menu() {
@@ -156,7 +242,12 @@ class WC_Tag_Discount_Manager {
 		}
 
 		wp_enqueue_style( 'wc-tag-discount-admin', WC_TAG_DISCOUNT_PLUGIN_URL . 'assets/admin.css', array(), WC_TAG_DISCOUNT_VERSION );
-		wp_enqueue_script( 'wc-tag-discount-admin', WC_TAG_DISCOUNT_PLUGIN_URL . 'assets/admin.js', array(), WC_TAG_DISCOUNT_VERSION, true );
+
+		// Reuse WooCommerce's own verified taxonomy-term search (wc_ajax_json_search_taxonomy_terms)
+		// instead of building a parallel AJAX endpoint.
+		wp_enqueue_style( 'woocommerce_admin_styles' );
+		wp_enqueue_script( 'wc-enhanced-select' );
+		wp_enqueue_script( 'wc-tag-discount-admin', WC_TAG_DISCOUNT_PLUGIN_URL . 'assets/admin.js', array( 'jquery', 'wc-enhanced-select' ), WC_TAG_DISCOUNT_VERSION, true );
 	}
 
 	public function render_admin_page() {
@@ -180,22 +271,13 @@ class WC_Tag_Discount_Manager {
 					class="nav-tab <?php echo 'rules' === $active_tab ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e( 'Discount Rules', 'wc-tag-discount' ); ?>
 				</a>
-				<a href="?page=tag-discount-manager&tab=schedule"
-					class="nav-tab <?php echo 'schedule' === $active_tab ? 'nav-tab-active' : ''; ?>">
-					<?php esc_html_e( 'Schedule', 'wc-tag-discount' ); ?>
-				</a>
 			</h2>
 
 			<?php
-			switch ( $active_tab ) {
-				case 'rules':
-					$this->render_rules_tab();
-					break;
-				case 'schedule':
-					$this->render_schedule_tab();
-					break;
-				default:
-					$this->render_dashboard_tab();
+			if ( 'rules' === $active_tab ) {
+				$this->render_rules_tab();
+			} else {
+				$this->render_dashboard_tab();
 			}
 			?>
 		</div>
@@ -265,7 +347,9 @@ class WC_Tag_Discount_Manager {
 						?>
 						<div class="product-item">
 							<span>
-								<?php echo esc_html( $product->get_name() ); ?>
+								<a href="<?php echo esc_url( get_edit_post_link( $product_id ) ); ?>" target="_blank" rel="noopener noreferrer">
+									<?php echo esc_html( $product->get_name() ); ?>
+								</a>
 								<?php if ( $product->is_type( 'variable' ) ) : ?>
 									<span class="variation-info"><?php esc_html_e( '(variable product)', 'wc-tag-discount' ); ?></span>
 								<?php endif; ?>
@@ -326,118 +410,122 @@ class WC_Tag_Discount_Manager {
 	}
 
 	private function render_rules_tab() {
-		$rules = array_values( $this->get_discount_rules() );
-
-		if ( empty( $rules ) ) {
-			$rules = array(
-				array(
-					'taxonomy' => 'product_tag',
-					'slug'     => '',
-					'discount' => '',
-				),
-			);
-		}
+		$rules = $this->get_discount_rules();
 		?>
 		<div class="discount-card">
 			<h3><?php esc_html_e( 'Discount Rules', 'wc-tag-discount' ); ?></h3>
-			<p><?php esc_html_e( 'Map a product tag or category to a discount percentage. When a product matches more than one rule, the last matching rule wins.', 'wc-tag-discount' ); ?></p>
+			<p><?php esc_html_e( 'Each rule can be applied right now, on its own schedule, or both — there is no single sitewide sale window anymore. When a product matches more than one rule, the last matching rule wins.', 'wc-tag-discount' ); ?></p>
 
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-				<input type="hidden" name="action" value="save_discount_rules">
-				<?php wp_nonce_field( 'wc_tag_discount_save_rules' ); ?>
+			<?php if ( empty( $rules ) ) : ?>
+				<p><?php esc_html_e( 'No rules yet — add one below.', 'wc-tag-discount' ); ?></p>
+			<?php else : ?>
+				<?php foreach ( $rules as $rule_key => $rule ) : ?>
+					<?php $this->render_rule_row( $rule_key, $rule ); ?>
+				<?php endforeach; ?>
+			<?php endif; ?>
+		</div>
 
-				<table class="rules-table" id="wc-tag-discount-rules-table">
-					<thead>
-						<tr>
-							<th><?php esc_html_e( 'Taxonomy', 'wc-tag-discount' ); ?></th>
-							<th><?php esc_html_e( 'Slug', 'wc-tag-discount' ); ?></th>
-							<th><?php esc_html_e( 'Discount %', 'wc-tag-discount' ); ?></th>
-							<th></th>
-						</tr>
-					</thead>
-					<tbody>
-						<?php foreach ( $rules as $rule ) : ?>
-							<tr class="rule-row">
-								<td>
-									<select name="rule_taxonomy[]">
-										<option value="product_tag" <?php selected( $rule['taxonomy'], 'product_tag' ); ?>><?php esc_html_e( 'Product Tag', 'wc-tag-discount' ); ?></option>
-										<option value="product_cat" <?php selected( $rule['taxonomy'], 'product_cat' ); ?>><?php esc_html_e( 'Product Category', 'wc-tag-discount' ); ?></option>
-									</select>
-								</td>
-								<td><input type="text" name="rule_slug[]" value="<?php echo esc_attr( $rule['slug'] ); ?>" placeholder="e.g. sale-20"></td>
-								<td><input type="number" name="rule_discount[]" value="<?php echo esc_attr( $rule['discount'] ); ?>" min="0" max="100" step="0.01"></td>
-								<td><button type="button" class="button remove-rule-row"><?php esc_html_e( 'Remove', 'wc-tag-discount' ); ?></button></td>
-							</tr>
-						<?php endforeach; ?>
-					</tbody>
-				</table>
-
-				<p>
-					<button type="button" class="button" id="add-rule-row"><?php esc_html_e( 'Add Rule', 'wc-tag-discount' ); ?></button>
-				</p>
-
-				<p>
-					<button type="submit" class="button button-primary"><?php esc_html_e( 'Save Rules', 'wc-tag-discount' ); ?></button>
-				</p>
-			</form>
+		<div class="discount-card">
+			<h3><?php esc_html_e( 'Add a Rule', 'wc-tag-discount' ); ?></h3>
+			<?php $this->render_rule_row( '', null ); ?>
 		</div>
 		<?php
 	}
 
-	private function render_schedule_tab() {
-		$schedule         = get_option( 'wc_tag_discount_schedule', array() );
-		$apply_enabled    = ! empty( $schedule['apply_enabled'] );
-		$apply_datetime   = isset( $schedule['apply_datetime'] ) ? $schedule['apply_datetime'] : '';
-		$reverse_enabled  = ! empty( $schedule['reverse_enabled'] );
-		$reverse_datetime = isset( $schedule['reverse_datetime'] ) ? $schedule['reverse_datetime'] : '';
+	private function render_rule_row( $rule_key, $rule ) {
+		$is_new           = ( null === $rule );
+		$taxonomy         = $is_new ? 'product_tag' : $rule['taxonomy'];
+		$slug             = $is_new ? '' : $rule['slug'];
+		$discount         = $is_new ? '' : $rule['discount'];
+		$apply_datetime   = $is_new ? '' : $rule['apply_datetime'];
+		$reverse_datetime = $is_new ? '' : $rule['reverse_datetime'];
 		?>
-		<div class="discount-card">
-			<h3><?php esc_html_e( 'Schedule', 'wc-tag-discount' ); ?></h3>
-			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
-				<input type="hidden" name="action" value="save_schedule">
-				<?php wp_nonce_field( 'wc_tag_discount_save_schedule' ); ?>
+		<div class="rule-row-card">
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="rule-form">
+				<input type="hidden" name="action" value="save_tag_discount_rule">
+				<input type="hidden" name="rule_key" value="<?php echo esc_attr( $rule_key ); ?>">
+				<?php wp_nonce_field( 'wc_tag_discount_save_rule' ); ?>
 
-				<div class="schedule-grid">
-					<div class="schedule-box">
-						<h4>
-							<?php esc_html_e( 'Apply Discounts', 'wc-tag-discount' ); ?>
-							<?php
-							if ( $apply_enabled && $apply_datetime ) :
-								?>
-								<span class="scheduled-badge"><?php esc_html_e( 'Scheduled', 'wc-tag-discount' ); ?></span><?php endif; ?>
-						</h4>
-						<label>
-							<input type="checkbox" name="apply_enabled" value="1" <?php checked( $apply_enabled ); ?>>
-							<?php esc_html_e( 'Enable scheduled apply', 'wc-tag-discount' ); ?>
-						</label>
-						<p>
-							<input type="datetime-local" name="apply_datetime" value="<?php echo esc_attr( $apply_datetime ); ?>">
-						</p>
+				<div class="rule-row-grid">
+					<div class="rule-field">
+						<label><?php esc_html_e( 'Taxonomy', 'wc-tag-discount' ); ?></label>
+						<select name="taxonomy" class="rule-taxonomy-select">
+							<option value="product_tag" <?php selected( $taxonomy, 'product_tag' ); ?>><?php esc_html_e( 'Product Tag', 'wc-tag-discount' ); ?></option>
+							<option value="product_cat" <?php selected( $taxonomy, 'product_cat' ); ?>><?php esc_html_e( 'Product Category', 'wc-tag-discount' ); ?></option>
+						</select>
 					</div>
-					<div class="schedule-box">
-						<h4>
-							<?php esc_html_e( 'Reverse Discounts', 'wc-tag-discount' ); ?>
-							<?php
-							if ( $reverse_enabled && $reverse_datetime ) :
-								?>
-								<span class="scheduled-badge"><?php esc_html_e( 'Scheduled', 'wc-tag-discount' ); ?></span><?php endif; ?>
-						</h4>
-						<label>
-							<input type="checkbox" name="reverse_enabled" value="1" <?php checked( $reverse_enabled ); ?>>
-							<?php esc_html_e( 'Enable scheduled reverse', 'wc-tag-discount' ); ?>
-						</label>
-						<p>
-							<input type="datetime-local" name="reverse_datetime" value="<?php echo esc_attr( $reverse_datetime ); ?>">
-						</p>
+					<div class="rule-field">
+						<label><?php esc_html_e( 'Tag / Category', 'wc-tag-discount' ); ?></label>
+						<select name="slug" class="wc-tag-discount-term-search" data-placeholder="<?php esc_attr_e( 'Search or type to create new…', 'wc-tag-discount' ); ?>" style="width:100%">
+							<?php if ( '' !== $slug ) : ?>
+								<option value="<?php echo esc_attr( $slug ); ?>" selected><?php echo esc_html( $this->get_term_label( $taxonomy, $slug ) ); ?></option>
+							<?php endif; ?>
+						</select>
+					</div>
+					<div class="rule-field">
+						<label><?php esc_html_e( 'Discount %', 'wc-tag-discount' ); ?></label>
+						<input type="number" name="discount" value="<?php echo esc_attr( $discount ); ?>" min="0.01" max="100" step="0.01">
+					</div>
+					<div class="rule-field">
+						<label><?php esc_html_e( 'Apply at (optional)', 'wc-tag-discount' ); ?></label>
+						<input type="datetime-local" name="apply_datetime" value="<?php echo esc_attr( $apply_datetime ); ?>">
+					</div>
+					<div class="rule-field">
+						<label><?php esc_html_e( 'Reverse at (optional)', 'wc-tag-discount' ); ?></label>
+						<input type="datetime-local" name="reverse_datetime" value="<?php echo esc_attr( $reverse_datetime ); ?>">
 					</div>
 				</div>
 
-				<p>
-					<button type="submit" class="button button-primary"><?php esc_html_e( 'Save Schedule', 'wc-tag-discount' ); ?></button>
-				</p>
+				<?php if ( ! $is_new ) : ?>
+					<p class="rule-status">
+						<?php
+						$match_count  = count( $this->get_products_for_rule( $rule ) );
+						$active_count = count( $this->get_products_with_rule( $rule_key ) );
+						printf(
+							/* translators: 1: number of products matching the tag/category, 2: number currently discounted under this rule. */
+							esc_html__( '%1$d products match this rule right now — %2$d are currently discounted under it.', 'wc-tag-discount' ),
+							(int) $match_count,
+							(int) $active_count
+						);
+						?>
+					</p>
+				<?php endif; ?>
+
+				<div class="button-group">
+					<button type="submit" class="button button-primary"><?php echo $is_new ? esc_html__( 'Add Rule', 'wc-tag-discount' ) : esc_html__( 'Save Changes', 'wc-tag-discount' ); ?></button>
+				</div>
 			</form>
+
+			<?php if ( ! $is_new ) : ?>
+				<div class="button-group rule-actions">
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+						<input type="hidden" name="action" value="apply_tag_discount_rule">
+						<input type="hidden" name="rule_key" value="<?php echo esc_attr( $rule_key ); ?>">
+						<?php wp_nonce_field( 'wc_tag_discount_apply_rule' ); ?>
+						<button type="submit" class="button"><?php esc_html_e( 'Apply This Rule Now', 'wc-tag-discount' ); ?></button>
+					</form>
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+						<input type="hidden" name="action" value="reverse_tag_discount_rule">
+						<input type="hidden" name="rule_key" value="<?php echo esc_attr( $rule_key ); ?>">
+						<?php wp_nonce_field( 'wc_tag_discount_reverse_rule' ); ?>
+						<button type="submit" class="button"><?php esc_html_e( 'Reverse This Rule Now', 'wc-tag-discount' ); ?></button>
+					</form>
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('<?php echo esc_js( __( 'Delete this rule?', 'wc-tag-discount' ) ); ?>');">
+						<input type="hidden" name="action" value="delete_tag_discount_rule">
+						<input type="hidden" name="rule_key" value="<?php echo esc_attr( $rule_key ); ?>">
+						<?php wp_nonce_field( 'wc_tag_discount_delete_rule' ); ?>
+						<button type="submit" class="button"><?php esc_html_e( 'Delete', 'wc-tag-discount' ); ?></button>
+					</form>
+				</div>
+			<?php endif; ?>
 		</div>
 		<?php
+	}
+
+	private function get_term_label( $taxonomy, $slug ) {
+		$term = get_term_by( 'slug', $slug, $taxonomy );
+
+		return ( $term && ! is_wp_error( $term ) ) ? $term->name : $slug;
 	}
 
 	public function handle_apply_discounts() {
@@ -482,46 +570,65 @@ class WC_Tag_Discount_Manager {
 		exit;
 	}
 
-	public function handle_save_rules() {
+	public function handle_save_rule() {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_die( esc_html__( 'You do not have permission to do this.', 'wc-tag-discount' ) );
 		}
-		check_admin_referer( 'wc_tag_discount_save_rules' );
-
-		$slugs      = isset( $_POST['rule_slug'] ) ? (array) wp_unslash( $_POST['rule_slug'] ) : array();
-		$discounts  = isset( $_POST['rule_discount'] ) ? (array) wp_unslash( $_POST['rule_discount'] ) : array();
-		$taxonomies = isset( $_POST['rule_taxonomy'] ) ? (array) wp_unslash( $_POST['rule_taxonomy'] ) : array();
+		check_admin_referer( 'wc_tag_discount_save_rule' );
 
 		$allowed_taxonomies = array( 'product_tag', 'product_cat' );
-		$rules              = array();
+		$old_key            = isset( $_POST['rule_key'] ) ? sanitize_text_field( wp_unslash( $_POST['rule_key'] ) ) : '';
 
-		foreach ( $slugs as $i => $raw_slug ) {
-			$slug = sanitize_title( $raw_slug );
-			if ( '' === $slug ) {
-				continue;
+		$taxonomy = ( isset( $_POST['taxonomy'] ) && in_array( wp_unslash( $_POST['taxonomy'] ), $allowed_taxonomies, true ) )
+			? wp_unslash( $_POST['taxonomy'] )
+			: 'product_tag';
+
+		$typed = isset( $_POST['slug'] ) ? sanitize_text_field( wp_unslash( $_POST['slug'] ) ) : '';
+		$slug  = sanitize_title( $typed );
+
+		$discount = isset( $_POST['discount'] ) ? (float) wp_unslash( $_POST['discount'] ) : 0;
+		$discount = max( 0, min( 100, $discount ) );
+
+		$rules = $this->get_discount_rules();
+
+		if ( '' !== $old_key ) {
+			unset( $rules[ $old_key ] );
+		}
+
+		if ( '' !== $slug && $discount > 0 ) {
+			// Create the term if it doesn't exist yet, so a merchant can type a brand
+			// new tag/category name directly into the rule instead of creating it first.
+			if ( ! term_exists( $slug, $taxonomy ) ) {
+				$inserted = wp_insert_term( $typed, $taxonomy );
+				if ( ! is_wp_error( $inserted ) ) {
+					$term = get_term( $inserted['term_id'], $taxonomy );
+					if ( $term && ! is_wp_error( $term ) ) {
+						$slug = $term->slug;
+					}
+				}
 			}
 
-			$taxonomy = ( isset( $taxonomies[ $i ] ) && in_array( $taxonomies[ $i ], $allowed_taxonomies, true ) )
-				? $taxonomies[ $i ]
-				: 'product_tag';
+			$apply_datetime   = isset( $_POST['apply_datetime'] ) ? sanitize_text_field( wp_unslash( $_POST['apply_datetime'] ) ) : '';
+			$reverse_datetime = isset( $_POST['reverse_datetime'] ) ? sanitize_text_field( wp_unslash( $_POST['reverse_datetime'] ) ) : '';
 
-			$discount = isset( $discounts[ $i ] ) ? (float) $discounts[ $i ] : 0;
-			$discount = max( 0, min( 100, $discount ) );
-
-			if ( $discount <= 0 ) {
-				continue;
+			if ( '' !== $apply_datetime && false === $this->schedule_datetime_to_timestamp( $apply_datetime ) ) {
+				$apply_datetime = '';
+			}
+			if ( '' !== $reverse_datetime && false === $this->schedule_datetime_to_timestamp( $reverse_datetime ) ) {
+				$reverse_datetime = '';
 			}
 
-			$rule_key           = $taxonomy . '_' . $slug;
-			$rules[ $rule_key ] = array(
-				'slug'     => $slug,
-				'taxonomy' => $taxonomy,
-				'discount' => $discount,
+			$rules[ $taxonomy . '_' . $slug ] = array(
+				'slug'             => $slug,
+				'taxonomy'         => $taxonomy,
+				'discount'         => $discount,
+				'apply_datetime'   => $apply_datetime,
+				'reverse_datetime' => $reverse_datetime,
 			);
 		}
 
-		// update_option overwrites the single existing row in place, it never grows the table.
-		update_option( 'wc_tag_discount_rules', $rules );
+		update_option( self::OPT_RULES, $rules );
+		$this->setup_scheduled_events();
 
 		wp_safe_redirect(
 			add_query_arg(
@@ -536,34 +643,72 @@ class WC_Tag_Discount_Manager {
 		exit;
 	}
 
-	public function handle_save_schedule() {
+	public function handle_delete_rule() {
 		if ( ! current_user_can( 'manage_woocommerce' ) ) {
 			wp_die( esc_html__( 'You do not have permission to do this.', 'wc-tag-discount' ) );
 		}
-		check_admin_referer( 'wc_tag_discount_save_schedule' );
+		check_admin_referer( 'wc_tag_discount_delete_rule' );
 
-		$schedule = array(
-			'apply_enabled'    => ! empty( $_POST['apply_enabled'] ),
-			'apply_datetime'   => isset( $_POST['apply_datetime'] ) ? sanitize_text_field( wp_unslash( $_POST['apply_datetime'] ) ) : '',
-			'reverse_enabled'  => ! empty( $_POST['reverse_enabled'] ),
-			'reverse_datetime' => isset( $_POST['reverse_datetime'] ) ? sanitize_text_field( wp_unslash( $_POST['reverse_datetime'] ) ) : '',
-		);
+		$rule_key = isset( $_POST['rule_key'] ) ? sanitize_text_field( wp_unslash( $_POST['rule_key'] ) ) : '';
+		$rules    = $this->get_discount_rules();
 
-		foreach ( array( 'apply_datetime', 'reverse_datetime' ) as $field ) {
-			if ( '' !== $schedule[ $field ] && false === $this->schedule_datetime_to_timestamp( $schedule[ $field ] ) ) {
-				$schedule[ $field ] = '';
-			}
-		}
-
-		update_option( 'wc_tag_discount_schedule', $schedule );
+		unset( $rules[ $rule_key ] );
+		update_option( self::OPT_RULES, $rules );
 		$this->setup_scheduled_events();
 
 		wp_safe_redirect(
 			add_query_arg(
 				array(
 					'page'    => 'tag-discount-manager',
-					'tab'     => 'schedule',
-					'message' => 'schedule_saved',
+					'tab'     => 'rules',
+					'message' => 'rule_deleted',
+				),
+				admin_url( 'admin.php' )
+			)
+		);
+		exit;
+	}
+
+	public function handle_apply_rule() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'wc-tag-discount' ) );
+		}
+		check_admin_referer( 'wc_tag_discount_apply_rule' );
+
+		$rule_key = isset( $_POST['rule_key'] ) ? sanitize_text_field( wp_unslash( $_POST['rule_key'] ) ) : '';
+		$rules    = $this->get_discount_rules();
+		$count    = isset( $rules[ $rule_key ] ) ? $this->apply_rule( $rule_key, $rules[ $rule_key ] ) : 0;
+
+		wp_safe_redirect(
+			add_query_arg(
+				array(
+					'page'    => 'tag-discount-manager',
+					'tab'     => 'rules',
+					'message' => 'applied',
+					'count'   => $count,
+				),
+				admin_url( 'admin.php' )
+			)
+		);
+		exit;
+	}
+
+	public function handle_reverse_rule() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'wc-tag-discount' ) );
+		}
+		check_admin_referer( 'wc_tag_discount_reverse_rule' );
+
+		$rule_key = isset( $_POST['rule_key'] ) ? sanitize_text_field( wp_unslash( $_POST['rule_key'] ) ) : '';
+		$count    = $this->reverse_rule( $rule_key );
+
+		wp_safe_redirect(
+			add_query_arg(
+				array(
+					'page'    => 'tag-discount-manager',
+					'tab'     => 'rules',
+					'message' => 'reversed',
+					'count'   => $count,
 				),
 				admin_url( 'admin.php' )
 			)
@@ -646,37 +791,56 @@ class WC_Tag_Discount_Manager {
 		echo '</p></div>';
 	}
 
-	public function apply_discounts() {
-		$rules    = $this->get_discount_rules();
+	/**
+	 * Applies one rule to every product it currently matches. Returns the set of
+	 * affected product/variation IDs (not just a count) so apply_discounts() can
+	 * de-duplicate correctly when a product matches more than one rule.
+	 */
+	private function discount_matching_products( $rule_key, $rule ) {
 		$affected = array();
 
-		foreach ( $rules as $rule_key => $rule ) {
-			foreach ( $this->get_products_for_rule( $rule ) as $product_id ) {
-				$product = wc_get_product( $product_id );
-				if ( ! $product ) {
-					continue;
-				}
+		foreach ( $this->get_products_for_rule( $rule ) as $product_id ) {
+			$product = wc_get_product( $product_id );
+			if ( ! $product ) {
+				continue;
+			}
 
-				if ( $product->is_type( 'variable' ) ) {
-					foreach ( $product->get_children() as $variation_id ) {
-						$variation = wc_get_product( $variation_id );
-						if ( $variation && $this->apply_discount_to_product( $variation, $rule_key, $rule ) ) {
-							$affected[ $variation_id ] = true;
-						}
+			if ( $product->is_type( 'variable' ) ) {
+				foreach ( $product->get_children() as $variation_id ) {
+					$variation = wc_get_product( $variation_id );
+					if ( $variation && $this->apply_discount_to_product( $variation, $rule_key, $rule ) ) {
+						$affected[ $variation_id ] = true;
 					}
-				} elseif ( $this->apply_discount_to_product( $product, $rule_key, $rule ) ) {
-					$affected[ $product_id ] = true;
 				}
+			} elseif ( $this->apply_discount_to_product( $product, $rule_key, $rule ) ) {
+				$affected[ $product_id ] = true;
 			}
 		}
 
-		return count( $affected );
+		return $affected;
 	}
 
-	public function reverse_discounts() {
+	/**
+	 * Runs a bulk apply/reverse operation with auto_update_product_discount()
+	 * unhooked for its duration. Necessary because saving a variation makes
+	 * WooCommerce internally re-save its parent product to keep the parent's
+	 * cached price range in sync -- that parent save fires save_post_product
+	 * like any other, and without this guard our own auto-detect hook would see
+	 * it, find the parent still carries the matching tag, and silently
+	 * re-apply the very discount a bulk reverse was in the middle of clearing.
+	 */
+	private function without_auto_update( callable $callback ) {
+		remove_action( 'save_post_product', array( $this, 'auto_update_product_discount' ), 10 );
+		$result = $callback();
+		add_action( 'save_post_product', array( $this, 'auto_update_product_discount' ), 10, 1 );
+
+		return $result;
+	}
+
+	private function reverse_products( array $product_ids ) {
 		$count = 0;
 
-		foreach ( $this->get_products_with_active_discount() as $product_id ) {
+		foreach ( $product_ids as $product_id ) {
 			$product = wc_get_product( $product_id );
 			if ( $product && $this->reverse_discount_on_product( $product ) ) {
 				++$count;
@@ -684,6 +848,42 @@ class WC_Tag_Discount_Manager {
 		}
 
 		return $count;
+	}
+
+	public function apply_discounts() {
+		return $this->without_auto_update(
+			function () {
+				$affected = array();
+				foreach ( $this->get_discount_rules() as $rule_key => $rule ) {
+					$affected += $this->discount_matching_products( $rule_key, $rule );
+				}
+				return count( $affected );
+			}
+		);
+	}
+
+	public function apply_rule( $rule_key, $rule ) {
+		return $this->without_auto_update(
+			function () use ( $rule_key, $rule ) {
+				return count( $this->discount_matching_products( $rule_key, $rule ) );
+			}
+		);
+	}
+
+	public function reverse_discounts() {
+		return $this->without_auto_update(
+			function () {
+				return $this->reverse_products( $this->get_products_with_active_discount() );
+			}
+		);
+	}
+
+	public function reverse_rule( $rule_key ) {
+		return $this->without_auto_update(
+			function () use ( $rule_key ) {
+				return $this->reverse_products( $this->get_products_with_rule( $rule_key ) );
+			}
+		);
 	}
 
 	public function auto_update_product_discount( $post_id ) {
@@ -806,6 +1006,19 @@ class WC_Tag_Discount_Manager {
 				'posts_per_page' => -1,
 				'fields'         => 'ids',
 				'meta_key'       => self::META_RULE,
+			)
+		);
+	}
+
+	private function get_products_with_rule( $rule_key ) {
+		return get_posts(
+			array(
+				'post_type'      => array( 'product', 'product_variation' ),
+				'post_status'    => 'publish',
+				'posts_per_page' => -1,
+				'fields'         => 'ids',
+				'meta_key'       => self::META_RULE,
+				'meta_value'     => $rule_key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- exact match on our own indexed-by-usage meta key, needed to scope a reverse to one rule.
 			)
 		);
 	}
