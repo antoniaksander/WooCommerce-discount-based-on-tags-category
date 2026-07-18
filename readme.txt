@@ -6,7 +6,7 @@ Tested up to: 7.0.2
 Requires PHP: 7.4
 WC requires at least: 5.0
 WC tested up to: 10.7
-Stable tag: 1.3.0
+Stable tag: 1.4.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,9 @@ Uninstalling (not just deactivating) restores every discounted product's prior s
 It can, if many of the imported products carry a discounted tag or category — each match triggers a full product save on top of the import's own save. Before a large import, use "Pause Auto-Apply" on the Dashboard (WooCommerce → Tag Discounts). New products won't be auto-discounted while paused; run "Apply Discounts Now" once when the import finishes. The pause resumes on its own after the timer you chose, even if you forget to turn it back on, and a reminder banner appears throughout wp-admin the whole time it's active.
 
 == Changelog ==
+
+= 1.4.0 =
+* Add one-click updates: WordPress's Plugins page now shows a normal "update available" notice and "Update Now" link for new releases, the same as any wp.org-hosted plugin, instead of requiring a manual download-and-re-upload. Checks the GitHub releases feed and always installs from the built release asset (never GitHub's auto-generated source zip, which uses the wrong folder name and would install as a duplicate plugin instead of updating in place).
 
 = 1.3.0 =
 * Rearchitect scheduling to be per-rule instead of one sitewide apply/reverse window. Each rule can be applied immediately, on its own optional schedule, or both; the separate Schedule tab is gone, folded into each rule. Still just the one options row for rule data, and still WP-Cron's existing single "cron" option for every scheduled event on the site — no new database rows or tables, no recurring cron jobs.

@@ -3,7 +3,7 @@
  * Plugin Name: WooCommerce Tag-Based Discount Manager
  * Plugin URI: https://github.com/antoniaksander/WooCommerce-discount-based-on-tags-category
  * Description: Apply and manage discounts based on product tags or categories, with preview, per-rule scheduling, and reversal
- * Version: 1.3.0
+ * Version: 1.4.0
  * Author: antoniaksander
  * Author URI: https://github.com/antoniaksander
  * Text Domain: wc-tag-discount
@@ -22,9 +22,31 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WC_TAG_DISCOUNT_VERSION', '1.3.0' );
+define( 'WC_TAG_DISCOUNT_VERSION', '1.4.0' );
 define( 'WC_TAG_DISCOUNT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WC_TAG_DISCOUNT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
+
+/**
+ * Lets WordPress offer a normal "Update Now" link in wp-admin for new GitHub
+ * releases, instead of manually downloading and re-uploading a zip. Runs
+ * independent of the WooCommerce-active check below so updates stay checkable
+ * even if WooCommerce is briefly deactivated. Requires the release asset
+ * (built via `git archive` with the correct folder name) rather than GitHub's
+ * auto-generated source zip, which uses the repo name as the folder and would
+ * install as a second, duplicate plugin instead of updating this one in place.
+ */
+if ( is_admin() ) {
+	require_once WC_TAG_DISCOUNT_PLUGIN_DIR . 'includes/plugin-update-checker/plugin-update-checker.php';
+
+	YahnisElsts\PluginUpdateChecker\v5p7\PucFactory::buildUpdateChecker(
+		'https://github.com/antoniaksander/WooCommerce-discount-based-on-tags-category/',
+		__FILE__,
+		'woocommerce-tag-discount-manager'
+	)->getVcsApi()->enableReleaseAssets(
+		'/^woocommerce-tag-discount-manager-.*\.zip$/',
+		YahnisElsts\PluginUpdateChecker\v5p7\Vcs\Api::REQUIRE_RELEASE_ASSETS
+	);
+}
 
 /**
  * Check if WooCommerce is active, including network-activated on multisite.
