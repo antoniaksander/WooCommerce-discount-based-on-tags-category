@@ -30,6 +30,8 @@
 .rule-field input, .rule-field select { width: 100%; }
 .rule-status { font-size: 13px; color: #666; margin: 10px 0; }
 .rule-actions { margin-top: 10px; padding-top: 10px; border-top: 1px solid #f0f0f0; }
+.rule-row-card--expired { border-color: #f0b849; background: #fffbf0; }
+.rule-status--expired { color: #8a5b00; font-weight: 600; }
 
 @media (max-width: 768px) {
     .stats-grid { grid-template-columns: 1fr; }

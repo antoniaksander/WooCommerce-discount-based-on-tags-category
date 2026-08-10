@@ -3,7 +3,7 @@
  * Plugin Name: WooCommerce Tag-Based Discount Manager
  * Plugin URI: https://github.com/antoniaksander/WooCommerce-discount-based-on-tags-category
  * Description: Apply and manage discounts based on product tags or categories, with preview, per-rule scheduling, and reversal
- * Version: 1.5.0
+ * Version: 1.6.0
  * Author: antoniaksander
  * Author URI: https://github.com/antoniaksander
  * Text Domain: wc-tag-discount
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WC_TAG_DISCOUNT_VERSION', '1.5.0' );
+define( 'WC_TAG_DISCOUNT_VERSION', '1.6.0' );
 define( 'WC_TAG_DISCOUNT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WC_TAG_DISCOUNT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -104,11 +104,19 @@ add_action(
 			'auto_apply_resumed' => __( 'Auto-apply resumed.', 'wc-tag-discount' ),
 		);
 
+		// Separate map: these render as a warning, not a success, and skip the
+		// "Success!" prefix -- not applying anything isn't a success to report.
+		$warning_messages = array(
+			'rule_expired' => __( 'This rule is expired (its reverse date has passed), so it was not applied. Update the reverse date and save the rule to reactivate it.', 'wc-tag-discount' ),
+		);
+
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, only selects which notice to render.
 		$message_key = sanitize_key( wp_unslash( $_GET['message'] ) );
 
 		if ( isset( $messages[ $message_key ] ) ) {
 			echo '<div class="notice notice-success is-dismissible"><p><strong>' . esc_html__( 'Success!', 'wc-tag-discount' ) . '</strong> ' . esc_html( $messages[ $message_key ] ) . '</p></div>';
+		} elseif ( isset( $warning_messages[ $message_key ] ) ) {
+			echo '<div class="notice notice-warning is-dismissible"><p>' . esc_html( $warning_messages[ $message_key ] ) . '</p></div>';
 		}
 	}
 );

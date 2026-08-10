@@ -6,7 +6,7 @@ Tested up to: 7.0.2
 Requires PHP: 7.4
 WC requires at least: 5.0
 WC tested up to: 10.7
-Stable tag: 1.5.0
+Stable tag: 1.6.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,9 @@ Uninstalling (not just deactivating) restores every discounted product's prior s
 It can, if many of the imported products carry a discounted tag or category — each match triggers a full product save on top of the import's own save. Before a large import, use "Pause Auto-Apply" on the Dashboard (WooCommerce → Tag Discounts). New products won't be auto-discounted while paused; run "Apply Discounts Now" once when the import finishes. The pause resumes on its own after the timer you chose, even if you forget to turn it back on, and a reminder banner appears throughout wp-admin the whole time it's active.
 
 == Changelog ==
+
+= 1.6.0 =
+* Fix: a rule's "Reverse at" date was only ever consumed once, to schedule the one-time cron reversal — the rule itself kept matching forever afterward. Once that date passed, any new product (or an existing one, freshly tagged) would still silently pick up the "expired" discount on save, with no indication anything was wrong. Rules past their reverse date no longer match anywhere (auto-apply on save, bulk Apply, per-rule Apply, and the Dashboard preview); they stay fully visible and editable in the Rules tab, now with a clear "Expired" notice, so you can update the date or delete the rule.
 
 = 1.5.0 =
 * Add support for discounting by any product taxonomy your store actually has, not just tags and categories — brands (if a brands plugin is active), attributes used as taxonomies, or any other custom taxonomy registered on products. The taxonomy list in the Rules tab is now built from what's really on the site, so this needs no configuration.
