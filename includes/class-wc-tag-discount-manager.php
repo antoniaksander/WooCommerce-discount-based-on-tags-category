@@ -127,6 +127,42 @@ class WC_Tag_Discount_Manager {
 	}
 
 	/**
+	 * A rule with a reverse_datetime in the past has already had its window --
+	 * without this check it kept matching forever, since reverse_datetime was
+	 * only ever consumed once, to schedule the one-time cron reversal. Any
+	 * later save of a new or edited product carrying that tag/category would
+	 * silently pick the (supposedly expired) discount back up. Expired rules
+	 * stay fully visible/editable in the Rules tab; this only gates whether a
+	 * rule is used for matching (auto-apply-on-save, bulk apply, per-rule
+	 * apply, and the Dashboard preview).
+	 */
+	private function is_rule_expired( $rule ) {
+		if ( '' === $rule['reverse_datetime'] ) {
+			return false;
+		}
+
+		$timestamp = $this->schedule_datetime_to_timestamp( $rule['reverse_datetime'] );
+
+		return false !== $timestamp && $timestamp <= time();
+	}
+
+	/**
+	 * get_discount_rules() filtered down to rules that can still actually
+	 * apply to a product. Use this (not get_discount_rules() directly) for
+	 * anything that matches/applies a rule; use get_discount_rules() only for
+	 * rule management (the Rules tab needs to show and let you edit/delete
+	 * expired rules too).
+	 */
+	private function get_active_discount_rules() {
+		return array_filter(
+			$this->get_discount_rules(),
+			function ( $rule ) {
+				return ! $this->is_rule_expired( $rule );
+			}
+		);
+	}
+
+	/**
 	 * Whether auto-apply-on-save is currently paused (e.g. during a bulk import).
 	 * Correctness never depends on WP-Cron firing: this is a plain wall-clock
 	 * comparison against a stored "resume at" timestamp, so a pause always lifts
@@ -285,7 +321,7 @@ class WC_Tag_Discount_Manager {
 	}
 
 	private function render_dashboard_tab() {
-		$rules          = $this->get_discount_rules();
+		$rules          = $this->get_active_discount_rules();
 		$discounted_ids = $this->get_products_with_active_discount();
 
 		$preview = array();
@@ -439,8 +475,9 @@ class WC_Tag_Discount_Manager {
 		$discount         = $is_new ? '' : $rule['discount'];
 		$apply_datetime   = $is_new ? '' : $rule['apply_datetime'];
 		$reverse_datetime = $is_new ? '' : $rule['reverse_datetime'];
+		$is_expired       = ! $is_new && $this->is_rule_expired( $rule );
 		?>
-		<div class="rule-row-card">
+		<div class="rule-row-card<?php echo $is_expired ? ' rule-row-card--expired' : ''; ?>">
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="rule-form">
 				<input type="hidden" name="action" value="save_tag_discount_rule">
 				<input type="hidden" name="rule_key" value="<?php echo esc_attr( $rule_key ); ?>">
@@ -478,6 +515,11 @@ class WC_Tag_Discount_Manager {
 				</div>
 
 				<?php if ( ! $is_new ) : ?>
+					<?php if ( $is_expired ) : ?>
+						<p class="rule-status rule-status--expired">
+							<?php esc_html_e( '⚠ Expired — its reverse date has passed, so it no longer applies to any product (new, edited, or via Apply). Update the date above and save, or delete the rule, to reactivate it.', 'wc-tag-discount' ); ?>
+						</p>
+					<?php endif; ?>
 					<p class="rule-status">
 						<?php
 						$match_count  = count( $this->get_products_for_rule( $rule ) );
@@ -503,7 +545,7 @@ class WC_Tag_Discount_Manager {
 						<input type="hidden" name="action" value="apply_tag_discount_rule">
 						<input type="hidden" name="rule_key" value="<?php echo esc_attr( $rule_key ); ?>">
 						<?php wp_nonce_field( 'wc_tag_discount_apply_rule' ); ?>
-						<button type="submit" class="button"><?php esc_html_e( 'Apply This Rule Now', 'wc-tag-discount' ); ?></button>
+						<button type="submit" class="button" <?php disabled( $is_expired ); ?> title="<?php echo $is_expired ? esc_attr__( 'This rule is expired -- update its reverse date to reactivate it first.', 'wc-tag-discount' ) : ''; ?>"><?php esc_html_e( 'Apply This Rule Now', 'wc-tag-discount' ); ?></button>
 					</form>
 					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 						<input type="hidden" name="action" value="reverse_tag_discount_rule">
@@ -697,7 +739,22 @@ class WC_Tag_Discount_Manager {
 
 		$rule_key = isset( $_POST['rule_key'] ) ? sanitize_text_field( wp_unslash( $_POST['rule_key'] ) ) : '';
 		$rules    = $this->get_discount_rules();
-		$count    = isset( $rules[ $rule_key ] ) ? $this->apply_rule( $rule_key, $rules[ $rule_key ] ) : 0;
+
+		if ( isset( $rules[ $rule_key ] ) && $this->is_rule_expired( $rules[ $rule_key ] ) ) {
+			wp_safe_redirect(
+				add_query_arg(
+					array(
+						'page'    => 'tag-discount-manager',
+						'tab'     => 'rules',
+						'message' => 'rule_expired',
+					),
+					admin_url( 'admin.php' )
+				)
+			);
+			exit;
+		}
+
+		$count = isset( $rules[ $rule_key ] ) ? $this->apply_rule( $rule_key, $rules[ $rule_key ] ) : 0;
 
 		wp_safe_redirect(
 			add_query_arg(
@@ -874,7 +931,7 @@ class WC_Tag_Discount_Manager {
 		return $this->without_auto_update(
 			function () {
 				$affected = array();
-				foreach ( $this->get_discount_rules() as $rule_key => $rule ) {
+				foreach ( $this->get_active_discount_rules() as $rule_key => $rule ) {
 					$affected += $this->discount_matching_products( $rule_key, $rule );
 				}
 				return count( $affected );
@@ -927,7 +984,7 @@ class WC_Tag_Discount_Manager {
 		// Prevent product->save() below from re-triggering this same hook.
 		remove_action( 'save_post_product', array( $this, 'auto_update_product_discount' ), 10 );
 
-		$rules        = $this->get_discount_rules();
+		$rules        = $this->get_active_discount_rules();
 		$matched_rule = null;
 		$matched_key  = null;
 
