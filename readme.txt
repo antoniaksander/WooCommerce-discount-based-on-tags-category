@@ -6,7 +6,7 @@ Tested up to: 7.0.2
 Requires PHP: 7.4
 WC requires at least: 5.0
 WC tested up to: 10.7
-Stable tag: 1.6.0
+Stable tag: 1.7.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,10 @@ Uninstalling (not just deactivating) restores every discounted product's prior s
 It can, if many of the imported products carry a discounted tag or category — each match triggers a full product save on top of the import's own save. Before a large import, use "Pause Auto-Apply" on the Dashboard (WooCommerce → Tag Discounts). New products won't be auto-discounted while paused; run "Apply Discounts Now" once when the import finishes. The pause resumes on its own after the timer you chose, even if you forget to turn it back on, and a reminder banner appears throughout wp-admin the whole time it's active.
 
 == Changelog ==
+
+= 1.7.0 =
+* Fix: deleting a rule removed it from the Rules tab but left its discount live on every product still carrying it — with the rule gone, there was no way to find or reverse just those products short of reversing every currently-discounted product on the site.
+* Add a safety net for exactly that: the Dashboard now lists any discount still live under a rule that's no longer in the Rules tab, with an explicit choice per one — reverse it, or recreate it as a proper rule (taxonomy, tag/category, and discount % reconstructed from the still-live price) so it stays managed. A sitewide admin notice links here from any wp-admin screen so it can't go unnoticed.
 
 = 1.6.0 =
 * Fix: a rule's "Reverse at" date was only ever consumed once, to schedule the one-time cron reversal — the rule itself kept matching forever afterward. Once that date passed, any new product (or an existing one, freshly tagged) would still silently pick up the "expired" discount on save, with no indication anything was wrong. Rules past their reverse date no longer match anywhere (auto-apply on save, bulk Apply, per-rule Apply, and the Dashboard preview); they stay fully visible and editable in the Rules tab, now with a clear "Expired" notice, so you can update the date or delete the rule.

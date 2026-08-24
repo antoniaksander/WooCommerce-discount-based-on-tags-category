@@ -21,8 +21,11 @@ class WC_Tag_Discount_Manager {
 		add_action( 'admin_post_reverse_tag_discount_rule', array( $this, 'handle_reverse_rule' ) );
 		add_action( 'admin_post_pause_tag_discount_auto_apply', array( $this, 'handle_pause_auto_apply' ) );
 		add_action( 'admin_post_resume_tag_discount_auto_apply', array( $this, 'handle_resume_auto_apply' ) );
+		add_action( 'admin_post_reverse_orphaned_tag_discount_rule', array( $this, 'handle_reverse_orphaned_rule' ) );
+		add_action( 'admin_post_recreate_orphaned_tag_discount_rule', array( $this, 'handle_recreate_orphaned_rule' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_styles' ) );
 		add_action( 'admin_notices', array( $this, 'render_pause_notice' ) );
+		add_action( 'admin_notices', array( $this, 'render_orphaned_rules_notice' ) );
 
 		// Auto-update when products are saved
 		add_action( 'save_post_product', array( $this, 'auto_update_product_discount' ), 10, 1 );
@@ -331,6 +334,8 @@ class WC_Tag_Discount_Manager {
 			}
 		}
 		?>
+		<?php $this->render_orphaned_rules_card(); ?>
+
 		<div class="discount-card">
 			<h3><?php esc_html_e( 'Overview', 'wc-tag-discount' ); ?></h3>
 			<div class="stats-grid">
@@ -714,6 +719,11 @@ class WC_Tag_Discount_Manager {
 		$rule_key = isset( $_POST['rule_key'] ) ? sanitize_text_field( wp_unslash( $_POST['rule_key'] ) ) : '';
 		$rules    = $this->get_discount_rules();
 
+		// Deliberately does NOT reverse discounts on the rule's products here. Any
+		// product still carrying this rule's meta becomes an "orphaned" discount --
+		// surfaced on the Dashboard (see render_orphaned_rules_card()) where the admin
+		// explicitly chooses to reverse it or recreate it as a rule, instead of losing
+		// a still-wanted discount the moment its rule definition is removed.
 		unset( $rules[ $rule_key ] );
 		update_option( self::OPT_RULES, $rules );
 		$this->setup_scheduled_events();
@@ -836,6 +846,84 @@ class WC_Tag_Discount_Manager {
 		exit;
 	}
 
+	public function handle_reverse_orphaned_rule() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'wc-tag-discount' ) );
+		}
+		check_admin_referer( 'wc_tag_discount_reverse_orphan' );
+
+		$rule_key = isset( $_POST['rule_key'] ) ? sanitize_text_field( wp_unslash( $_POST['rule_key'] ) ) : '';
+		$count    = '' !== $rule_key ? $this->reverse_rule( $rule_key ) : 0;
+
+		wp_safe_redirect(
+			add_query_arg(
+				array(
+					'page'    => 'tag-discount-manager',
+					'message' => 'reversed',
+					'count'   => $count,
+				),
+				admin_url( 'admin.php' )
+			)
+		);
+		exit;
+	}
+
+	/**
+	 * Turns an orphaned rule key back into a real, editable rule: taxonomy/slug parsed
+	 * from the key, discount % reconstructed from a live sample product's current
+	 * sale/regular price (see guess_rule_parts_from_key()/guess_discount_for_orphan()).
+	 * Refuses -- rather than guessing -- when either can't be determined confidently,
+	 * since a wrong recreated discount is worse than none.
+	 */
+	public function handle_recreate_orphaned_rule() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'wc-tag-discount' ) );
+		}
+		check_admin_referer( 'wc_tag_discount_recreate_orphan' );
+
+		$rule_key = isset( $_POST['rule_key'] ) ? sanitize_text_field( wp_unslash( $_POST['rule_key'] ) ) : '';
+
+		list( $taxonomy, $slug ) = $this->guess_rule_parts_from_key( $rule_key );
+		$discount                = ( $taxonomy && $slug ) ? $this->guess_discount_for_orphan( $rule_key ) : null;
+
+		if ( ! $taxonomy || ! $slug || null === $discount || $discount <= 0 ) {
+			wp_safe_redirect(
+				add_query_arg(
+					array(
+						'page'    => 'tag-discount-manager',
+						'message' => 'orphan_recreate_failed',
+					),
+					admin_url( 'admin.php' )
+				)
+			);
+			exit;
+		}
+
+		$rules = $this->get_discount_rules();
+		$rules[ $taxonomy . '_' . $slug ] = array(
+			'slug'             => $slug,
+			'taxonomy'         => $taxonomy,
+			'discount'         => $discount,
+			'apply_datetime'   => '',
+			'reverse_datetime' => '',
+		);
+
+		update_option( self::OPT_RULES, $rules );
+		$this->setup_scheduled_events();
+
+		wp_safe_redirect(
+			add_query_arg(
+				array(
+					'page'    => 'tag-discount-manager',
+					'tab'     => 'rules',
+					'message' => 'orphan_recreated',
+				),
+				admin_url( 'admin.php' )
+			)
+		);
+		exit;
+	}
+
 	/**
 	 * Sitewide reminder while auto-apply is paused, so pausing it before a bulk
 	 * import can never go unnoticed. Skipped on our own settings page, which
@@ -866,6 +954,119 @@ class WC_Tag_Discount_Manager {
 		);
 		echo ' <a href="' . esc_url( $resume_url ) . '" class="button button-small">' . esc_html__( 'Resume auto-apply now', 'wc-tag-discount' ) . '</a>';
 		echo '</p></div>';
+	}
+
+	/**
+	 * Sitewide reminder that some products are still discounted under a rule that no
+	 * longer exists (see handle_delete_rule()) -- so it can't quietly go unnoticed
+	 * outside the Dashboard tab. Skipped on our own settings page, which shows the
+	 * same thing via render_orphaned_rules_card() with the actual reverse/recreate
+	 * choice attached.
+	 */
+	public function render_orphaned_rules_notice() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			return;
+		}
+
+		$screen = function_exists( 'get_current_screen' ) ? get_current_screen() : null;
+		if ( $screen && 'woocommerce_page_tag-discount-manager' === $screen->id ) {
+			return;
+		}
+
+		$orphans = $this->get_orphaned_rule_keys();
+		if ( empty( $orphans ) ) {
+			return;
+		}
+
+		$dashboard_url = admin_url( 'admin.php?page=tag-discount-manager' );
+
+		echo '<div class="notice notice-warning"><p>';
+		printf(
+			/* translators: %d: number of removed rules that still have live discounts on products. */
+			esc_html( _n( 'Tag Discount Manager: %d rule was removed but its discount is still live on some products.', 'Tag Discount Manager: %d rules were removed but their discounts are still live on some products.', count( $orphans ), 'wc-tag-discount' ) ),
+			(int) count( $orphans )
+		);
+		echo ' <a href="' . esc_url( $dashboard_url ) . '">' . esc_html__( 'Review them', 'wc-tag-discount' ) . '</a>';
+		echo '</p></div>';
+	}
+
+	/**
+	 * The actual safety net: for each rule key still live on products but no longer in
+	 * the rules list, let the admin explicitly choose to reverse those discounts or
+	 * recreate the rule (see handle_reverse_orphaned_rule()/handle_recreate_orphaned_rule())
+	 * rather than the plugin silently deciding either way.
+	 */
+	private function render_orphaned_rules_card() {
+		$orphans = $this->get_orphaned_rule_keys();
+		if ( empty( $orphans ) ) {
+			return;
+		}
+		?>
+		<div class="discount-card discount-card--warning">
+			<h3><?php esc_html_e( 'Discounts From Removed Rules', 'wc-tag-discount' ); ?></h3>
+			<p><?php esc_html_e( 'These rules were deleted, but the products they discounted still have that discount applied. Nothing was changed automatically -- choose what to do with each one below.', 'wc-tag-discount' ); ?></p>
+
+			<?php foreach ( $orphans as $rule_key ) : ?>
+				<?php
+				list( $taxonomy, $slug ) = $this->guess_rule_parts_from_key( $rule_key );
+				$product_count           = $this->count_products_with_rule( $rule_key );
+				$taxonomy_labels         = $this->get_selectable_taxonomies();
+
+				if ( $taxonomy && $slug ) {
+					$label = sprintf(
+						/* translators: 1: taxonomy label (e.g. "Tags"), 2: term name. */
+						__( '%1$s: %2$s', 'wc-tag-discount' ),
+						isset( $taxonomy_labels[ $taxonomy ] ) ? $taxonomy_labels[ $taxonomy ] : $taxonomy,
+						$this->get_term_label( $taxonomy, $slug )
+					);
+				} else {
+					$label = $rule_key;
+				}
+
+				$guessed_discount = ( $taxonomy && $slug ) ? $this->guess_discount_for_orphan( $rule_key ) : null;
+				$can_recreate      = ( $taxonomy && $slug && null !== $guessed_discount && $guessed_discount > 0 );
+				?>
+				<div class="rule-row-card rule-row-card--expired">
+					<p class="rule-status">
+						<strong><?php echo esc_html( $label ); ?></strong>
+						&mdash;
+						<?php
+						printf(
+							/* translators: %d: number of products still discounted under this removed rule. */
+							esc_html( _n( '%d product still discounted under this removed rule.', '%d products still discounted under this removed rule.', $product_count, 'wc-tag-discount' ) ),
+							(int) $product_count
+						);
+						?>
+						<?php if ( $can_recreate ) : ?>
+							<?php
+							printf(
+								/* translators: %s: reconstructed discount percentage. */
+								esc_html__( ' Recreating it would restore a %s%% rule.', 'wc-tag-discount' ),
+								esc_html( $guessed_discount )
+							);
+							?>
+						<?php endif; ?>
+					</p>
+					<div class="button-group">
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+							<input type="hidden" name="action" value="recreate_orphaned_tag_discount_rule">
+							<input type="hidden" name="rule_key" value="<?php echo esc_attr( $rule_key ); ?>">
+							<?php wp_nonce_field( 'wc_tag_discount_recreate_orphan' ); ?>
+							<button type="submit" class="button button-primary" <?php disabled( ! $can_recreate ); ?> title="<?php echo $can_recreate ? '' : esc_attr__( 'Could not reconstruct a taxonomy/slug/discount for this rule -- add it manually on the Discount Rules tab instead.', 'wc-tag-discount' ); ?>">
+								<?php esc_html_e( 'Keep Live — Recreate as a Rule', 'wc-tag-discount' ); ?>
+							</button>
+						</form>
+						<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('<?php echo esc_js( __( 'Reverse this discount on every matching product? This cannot be undone.', 'wc-tag-discount' ) ); ?>');">
+							<input type="hidden" name="action" value="reverse_orphaned_tag_discount_rule">
+							<input type="hidden" name="rule_key" value="<?php echo esc_attr( $rule_key ); ?>">
+							<?php wp_nonce_field( 'wc_tag_discount_reverse_orphan' ); ?>
+							<button type="submit" class="button"><?php esc_html_e( 'Reverse Discount', 'wc-tag-discount' ); ?></button>
+						</form>
+					</div>
+				</div>
+			<?php endforeach; ?>
+		</div>
+		<?php
 	}
 
 	/**
@@ -1073,6 +1274,122 @@ class WC_Tag_Discount_Manager {
 				),
 			)
 		);
+	}
+
+	/**
+	 * Distinct rule keys currently recorded on any product's discount meta, straight
+	 * from postmeta. A single DISTINCT query regardless of catalog size -- deliberately
+	 * not get_posts()/WP_Query here, since this can run on every admin page load (see
+	 * render_orphaned_rules_notice()) and the catalog is headed from ~1,000 to ~3,000
+	 * products shortly.
+	 */
+	private function get_live_rule_keys_in_use() {
+		global $wpdb;
+
+		return $wpdb->get_col(
+			$wpdb->prepare(
+				"SELECT DISTINCT meta_value FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value != ''",
+				self::META_RULE
+			)
+		);
+	}
+
+	/**
+	 * Rule keys with live discounted products but no matching entry in the current
+	 * rules list -- typically left behind by deleting a rule (see handle_delete_rule()),
+	 * which intentionally leaves this data in place for review here rather than
+	 * discarding it silently.
+	 */
+	private function get_orphaned_rule_keys() {
+		$known_keys = array_keys( $this->get_discount_rules() );
+		$live_keys  = $this->get_live_rule_keys_in_use();
+
+		return array_values( array_diff( $live_keys, $known_keys ) );
+	}
+
+	/**
+	 * Cheap COUNT for a single rule key, not a full get_posts() fetch -- used for the
+	 * orphan review card where we only need a number per orphan, not the objects.
+	 */
+	private function count_products_with_rule( $rule_key ) {
+		global $wpdb;
+
+		return (int) $wpdb->get_var(
+			$wpdb->prepare(
+				"SELECT COUNT(*) FROM {$wpdb->postmeta} WHERE meta_key = %s AND meta_value = %s",
+				self::META_RULE,
+				$rule_key
+			)
+		);
+	}
+
+	private function get_one_product_id_with_rule( $rule_key ) {
+		$ids = get_posts(
+			array(
+				'post_type'      => array( 'product', 'product_variation' ),
+				'post_status'    => 'publish',
+				'posts_per_page' => 1,
+				'fields'         => 'ids',
+				'meta_key'       => self::META_RULE,
+				'meta_value'     => $rule_key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- exact match on our own meta key, limited to 1 result.
+			)
+		);
+
+		return $ids ? $ids[0] : null;
+	}
+
+	/**
+	 * Best-effort split of a rule key ("{taxonomy}_{slug}") back into its parts, by
+	 * matching against currently-registered selectable taxonomies (longest name first,
+	 * so e.g. a hypothetical "product_tag_extra" taxonomy isn't shadowed by
+	 * "product_tag"). Returns array(null, null) if no known taxonomy's prefix matches
+	 * -- e.g. the term's taxonomy came from a plugin that's since been deactivated.
+	 */
+	private function guess_rule_parts_from_key( $rule_key ) {
+		$taxonomies = array_keys( $this->get_selectable_taxonomies() );
+		usort(
+			$taxonomies,
+			function ( $a, $b ) {
+				return strlen( $b ) - strlen( $a );
+			}
+		);
+
+		foreach ( $taxonomies as $taxonomy ) {
+			$prefix = $taxonomy . '_';
+			if ( 0 === strpos( $rule_key, $prefix ) ) {
+				return array( $taxonomy, substr( $rule_key, strlen( $prefix ) ) );
+			}
+		}
+
+		return array( null, null );
+	}
+
+	/**
+	 * Reconstructs the original discount % for an orphaned rule from a live sample
+	 * product's current sale vs. regular price -- the rule definition (which used to
+	 * carry the discount value) is gone, so this ratio is the only place it survives.
+	 * Returns null if it can't be determined (e.g. no matching product, or a since-
+	 * changed regular price), in which case recreation is refused rather than guessed.
+	 */
+	private function guess_discount_for_orphan( $rule_key ) {
+		$sample_id = $this->get_one_product_id_with_rule( $rule_key );
+		if ( ! $sample_id ) {
+			return null;
+		}
+
+		$product = wc_get_product( $sample_id );
+		if ( ! $product ) {
+			return null;
+		}
+
+		$regular_price = $this->get_discountable_regular_price( $product );
+		$sale_price    = $product->get_sale_price( 'edit' );
+
+		if ( null === $regular_price || $regular_price <= 0 || '' === $sale_price || ! is_numeric( $sale_price ) ) {
+			return null;
+		}
+
+		return round( ( 1 - ( (float) $sale_price / $regular_price ) ) * 100, 2 );
 	}
 
 	private function get_products_with_active_discount() {

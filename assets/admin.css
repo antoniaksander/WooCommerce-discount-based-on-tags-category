@@ -33,6 +33,8 @@
 .rule-row-card--expired { border-color: #f0b849; background: #fffbf0; }
 .rule-status--expired { color: #8a5b00; font-weight: 600; }
 
+.discount-card--warning h3 { border-bottom-color: #f0b849; }
+
 @media (max-width: 768px) {
     .stats-grid { grid-template-columns: 1fr; }
     .button-group { flex-wrap: wrap; }
