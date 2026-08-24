@@ -1128,12 +1128,30 @@ class WC_Tag_Discount_Manager {
 		return $count;
 	}
 
+	/**
+	 * Applies a rule to everything it currently matches, and reverses it on any
+	 * product/variation still carrying this rule's own meta that no longer matches --
+	 * e.g. a product's tag/category/brand assignment changed (bulk import, brand
+	 * cleanup, etc.) since the last apply. Without this, apply was purely additive:
+	 * a still-listed, still-active rule's discount could survive indefinitely on
+	 * products it no longer actually matches. Deliberately scoped to this one rule's
+	 * own meta value, never touching a different (e.g. orphaned/deleted) rule's
+	 * products -- that stays the admin's explicit call via the orphan review card.
+	 */
+	private function sync_rule( $rule_key, $rule ) {
+		$matched = $this->discount_matching_products( $rule_key, $rule );
+		$stale   = array_diff( $this->get_products_with_rule( $rule_key ), array_keys( $matched ) );
+		$this->reverse_products( $stale );
+
+		return $matched;
+	}
+
 	public function apply_discounts() {
 		return $this->without_auto_update(
 			function () {
 				$affected = array();
 				foreach ( $this->get_active_discount_rules() as $rule_key => $rule ) {
-					$affected += $this->discount_matching_products( $rule_key, $rule );
+					$affected += $this->sync_rule( $rule_key, $rule );
 				}
 				return count( $affected );
 			}
@@ -1143,7 +1161,7 @@ class WC_Tag_Discount_Manager {
 	public function apply_rule( $rule_key, $rule ) {
 		return $this->without_auto_update(
 			function () use ( $rule_key, $rule ) {
-				return count( $this->discount_matching_products( $rule_key, $rule ) );
+				return count( $this->sync_rule( $rule_key, $rule ) );
 			}
 		);
 	}

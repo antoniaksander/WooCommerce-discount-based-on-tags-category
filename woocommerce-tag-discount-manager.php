@@ -3,7 +3,7 @@
  * Plugin Name: WooCommerce Tag-Based Discount Manager
  * Plugin URI: https://github.com/antoniaksander/WooCommerce-discount-based-on-tags-category
  * Description: Apply and manage discounts based on product tags or categories, with preview, per-rule scheduling, and reversal
- * Version: 1.7.0
+ * Version: 1.8.0
  * Author: antoniaksander
  * Author URI: https://github.com/antoniaksander
  * Text Domain: wc-tag-discount
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WC_TAG_DISCOUNT_VERSION', '1.7.0' );
+define( 'WC_TAG_DISCOUNT_VERSION', '1.8.0' );
 define( 'WC_TAG_DISCOUNT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WC_TAG_DISCOUNT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -102,12 +102,14 @@ add_action(
 			'rule_deleted'       => __( 'Rule deleted.', 'wc-tag-discount' ),
 			'auto_apply_paused'  => __( 'Auto-apply paused. It will resume on its own when the timer runs out.', 'wc-tag-discount' ),
 			'auto_apply_resumed' => __( 'Auto-apply resumed.', 'wc-tag-discount' ),
+			'orphan_recreated'   => __( 'Rule recreated. It\'s now listed and editable on the Discount Rules tab.', 'wc-tag-discount' ),
 		);
 
 		// Separate map: these render as a warning, not a success, and skip the
 		// "Success!" prefix -- not applying anything isn't a success to report.
 		$warning_messages = array(
-			'rule_expired' => __( 'This rule is expired (its reverse date has passed), so it was not applied. Update the reverse date and save the rule to reactivate it.', 'wc-tag-discount' ),
+			'rule_expired'           => __( 'This rule is expired (its reverse date has passed), so it was not applied. Update the reverse date and save the rule to reactivate it.', 'wc-tag-discount' ),
+			'orphan_recreate_failed' => __( 'Could not recreate this rule automatically -- its taxonomy or discount % could not be determined. Add it manually on the Discount Rules tab instead.', 'wc-tag-discount' ),
 		);
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended -- read-only, only selects which notice to render.
