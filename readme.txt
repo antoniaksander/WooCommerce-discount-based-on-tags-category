@@ -6,7 +6,7 @@ Tested up to: 7.0.2
 Requires PHP: 7.4
 WC requires at least: 5.0
 WC tested up to: 10.7
-Stable tag: 1.8.0
+Stable tag: 1.8.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -54,6 +54,9 @@ Uninstalling (not just deactivating) restores every discounted product's prior s
 It can, if many of the imported products carry a discounted tag or category — each match triggers a full product save on top of the import's own save. Before a large import, use "Pause Auto-Apply" on the Dashboard (WooCommerce → Tag Discounts). New products won't be auto-discounted while paused; run "Apply Discounts Now" once when the import finishes. The pause resumes on its own after the timer you chose, even if you forget to turn it back on, and a reminder banner appears throughout wp-admin the whole time it's active.
 
 == Changelog ==
+
+= 1.8.1 =
+* Fix: 1.8.0 made Apply also reverse a rule's discount on products that no longer match it, but did so silently — the same "Apply Discounts Now" / "Apply This Rule Now" buttons you already knew, with no indication anything more than adding discounts was about to happen. If there's anything for a rule to reverse, applying it now shows the count up front and asks for confirmation before touching a live price, both in bulk and per-rule.
 
 = 1.8.0 =
 * Fix: "Apply" only ever added discounts, never removed one — if a product's tag/category/brand assignment changed since it was last discounted (bulk import, brand cleanup, etc.), it kept its stale sale price indefinitely even though it no longer matched its rule. Applying a rule (individually or in bulk) now also reverses that rule's discount on any product that no longer matches, so Apply is a real sync instead of purely additive. Also fixes the "Rule recreated" / "could not recreate" notices from 1.7.0's orphan review card, which weren't wired up to actually display.

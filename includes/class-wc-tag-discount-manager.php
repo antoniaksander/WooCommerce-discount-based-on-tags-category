@@ -327,11 +327,13 @@ class WC_Tag_Discount_Manager {
 		$rules          = $this->get_active_discount_rules();
 		$discounted_ids = $this->get_products_with_active_discount();
 
-		$preview = array();
-		foreach ( $rules as $rule ) {
+		$preview     = array();
+		$stale_total = 0;
+		foreach ( $rules as $rule_key => $rule ) {
 			foreach ( $this->get_products_for_rule( $rule ) as $product_id ) {
 				$preview[ $product_id ] = $rule;
 			}
+			$stale_total += $this->count_stale_for_rule( $rule_key, $rule );
 		}
 		?>
 		<?php $this->render_orphaned_rules_card(); ?>
@@ -354,7 +356,15 @@ class WC_Tag_Discount_Manager {
 			</div>
 
 			<div class="button-group">
-				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+					<?php if ( $stale_total > 0 ) : ?>
+						onsubmit="return confirm('<?php echo esc_js( sprintf(
+							/* translators: %d: number of products whose discount would be reversed. */
+							_n( 'This will also reverse the discount on %d product that no longer matches its rule. Continue?', 'This will also reverse the discount on %d products that no longer match their rule. Continue?', $stale_total, 'wc-tag-discount' ),
+							$stale_total
+						) ); ?>');"
+					<?php endif; ?>
+				>
 					<input type="hidden" name="action" value="apply_tag_discounts">
 					<?php wp_nonce_field( 'wc_tag_discount_apply' ); ?>
 					<button type="submit" class="button button-primary"><?php esc_html_e( 'Apply Discounts Now', 'wc-tag-discount' ); ?></button>
@@ -529,13 +539,24 @@ class WC_Tag_Discount_Manager {
 						<?php
 						$match_count  = count( $this->get_products_for_rule( $rule ) );
 						$active_count = count( $this->get_products_with_rule( $rule_key ) );
+						$stale_count  = $is_expired ? 0 : $this->count_stale_for_rule( $rule_key, $rule );
 						printf(
 							/* translators: 1: number of products matching the tag/category, 2: number currently discounted under this rule. */
 							esc_html__( '%1$d products match this rule right now — %2$d are currently discounted under it.', 'wc-tag-discount' ),
 							(int) $match_count,
 							(int) $active_count
 						);
-						?>
+						if ( $stale_count > 0 ) :
+							?>
+							<br>
+							<?php
+							printf(
+								/* translators: %d: number of products still discounted under this rule that no longer match it. */
+								esc_html( _n( 'Applying will reverse %d of those that no longer match.', 'Applying will reverse %d of those that no longer match.', $stale_count, 'wc-tag-discount' ) ),
+								(int) $stale_count
+							);
+							?>
+						<?php endif; ?>
 					</p>
 				<?php endif; ?>
 
@@ -546,7 +567,15 @@ class WC_Tag_Discount_Manager {
 
 			<?php if ( ! $is_new ) : ?>
 				<div class="button-group rule-actions">
-					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
+						<?php if ( $stale_count > 0 ) : ?>
+							onsubmit="return confirm('<?php echo esc_js( sprintf(
+								/* translators: %d: number of products whose discount would be reversed. */
+								_n( 'This will also reverse the discount on %d product that no longer matches this rule. Continue?', 'This will also reverse the discount on %d products that no longer match this rule. Continue?', $stale_count, 'wc-tag-discount' ),
+								$stale_count
+							) ); ?>');"
+						<?php endif; ?>
+					>
 						<input type="hidden" name="action" value="apply_tag_discount_rule">
 						<input type="hidden" name="rule_key" value="<?php echo esc_attr( $rule_key ); ?>">
 						<?php wp_nonce_field( 'wc_tag_discount_apply_rule' ); ?>
@@ -1067,6 +1096,47 @@ class WC_Tag_Discount_Manager {
 			<?php endforeach; ?>
 		</div>
 		<?php
+	}
+
+	/**
+	 * Read-only equivalent of discount_matching_products()'s ID set (product ids, or
+	 * variation ids for a variable product) -- for previewing how many products Apply
+	 * would touch without actually writing anything. Kept separate from
+	 * discount_matching_products() rather than adding a dry-run flag there, since that
+	 * method's whole job is the write.
+	 */
+	private function get_matching_ids_expanded( $rule ) {
+		$ids = array();
+
+		foreach ( $this->get_products_for_rule( $rule ) as $product_id ) {
+			$product = wc_get_product( $product_id );
+			if ( ! $product ) {
+				continue;
+			}
+
+			if ( $product->is_type( 'variable' ) ) {
+				foreach ( $product->get_children() as $variation_id ) {
+					$ids[ $variation_id ] = true;
+				}
+			} else {
+				$ids[ $product_id ] = true;
+			}
+		}
+
+		return $ids;
+	}
+
+	/**
+	 * How many products/variations sync_rule() would reverse if this rule were applied
+	 * right now -- i.e. still carrying this rule's own meta but no longer matching its
+	 * taxonomy. Used to warn before Apply, since Apply now reverses stale matches (see
+	 * sync_rule()) and that's a real, immediate price change on a live shop that
+	 * shouldn't happen without the admin seeing the number first.
+	 */
+	private function count_stale_for_rule( $rule_key, $rule ) {
+		$matched = $this->get_matching_ids_expanded( $rule );
+
+		return count( array_diff( $this->get_products_with_rule( $rule_key ), array_keys( $matched ) ) );
 	}
 
 	/**
