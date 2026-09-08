@@ -3,7 +3,7 @@
  * Plugin Name: WooCommerce Tag-Based Discount Manager
  * Plugin URI: https://github.com/antoniaksander/WooCommerce-discount-based-on-tags-category
  * Description: Apply and manage discounts based on product tags or categories, with preview, per-rule scheduling, and reversal
- * Version: 1.8.1
+ * Version: 1.9.0
  * Author: antoniaksander
  * Author URI: https://github.com/antoniaksander
  * Text Domain: wc-tag-discount
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WC_TAG_DISCOUNT_VERSION', '1.8.1' );
+define( 'WC_TAG_DISCOUNT_VERSION', '1.9.0' );
 define( 'WC_TAG_DISCOUNT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WC_TAG_DISCOUNT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -103,6 +103,8 @@ add_action(
 			'auto_apply_paused'  => __( 'Auto-apply paused. It will resume on its own when the timer runs out.', 'wc-tag-discount' ),
 			'auto_apply_resumed' => __( 'Auto-apply resumed.', 'wc-tag-discount' ),
 			'orphan_recreated'   => __( 'Rule recreated. It\'s now listed and editable on the Discount Rules tab.', 'wc-tag-discount' ),
+			// translators: %d: number of untracked sale prices cleared.
+			'untracked_cleared'  => sprintf( _n( 'Sale price cleared on %d product.', 'Sale prices cleared on %d products.', $count, 'wc-tag-discount' ), $count ),
 		);
 
 		// Separate map: these render as a warning, not a success, and skip the

@@ -23,6 +23,8 @@ class WC_Tag_Discount_Manager {
 		add_action( 'admin_post_resume_tag_discount_auto_apply', array( $this, 'handle_resume_auto_apply' ) );
 		add_action( 'admin_post_reverse_orphaned_tag_discount_rule', array( $this, 'handle_reverse_orphaned_rule' ) );
 		add_action( 'admin_post_recreate_orphaned_tag_discount_rule', array( $this, 'handle_recreate_orphaned_rule' ) );
+		add_action( 'admin_post_clear_untracked_tag_discount', array( $this, 'handle_clear_untracked_discount' ) );
+		add_action( 'admin_post_clear_all_untracked_tag_discounts', array( $this, 'handle_clear_all_untracked_discounts' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_styles' ) );
 		add_action( 'admin_notices', array( $this, 'render_pause_notice' ) );
 		add_action( 'admin_notices', array( $this, 'render_orphaned_rules_notice' ) );
@@ -310,11 +312,17 @@ class WC_Tag_Discount_Manager {
 					class="nav-tab <?php echo 'rules' === $active_tab ? 'nav-tab-active' : ''; ?>">
 					<?php esc_html_e( 'Discount Rules', 'wc-tag-discount' ); ?>
 				</a>
+				<a href="?page=tag-discount-manager&tab=untracked"
+					class="nav-tab <?php echo 'untracked' === $active_tab ? 'nav-tab-active' : ''; ?>">
+					<?php esc_html_e( 'Untracked Discounts', 'wc-tag-discount' ); ?>
+				</a>
 			</h2>
 
 			<?php
 			if ( 'rules' === $active_tab ) {
 				$this->render_rules_tab();
+			} elseif ( 'untracked' === $active_tab ) {
+				$this->render_untracked_tab();
 			} else {
 				$this->render_dashboard_tab();
 			}
@@ -479,6 +487,68 @@ class WC_Tag_Discount_Manager {
 		<div class="discount-card">
 			<h3><?php esc_html_e( 'Add a Rule', 'wc-tag-discount' ); ?></h3>
 			<?php $this->render_rule_row( '', null ); ?>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Products currently on sale that this plugin isn't the source of that price for
+	 * -- see get_untracked_sale_products(). A manual decision per product (or all at
+	 * once), never automatic: the plugin has no way to know whether an untracked sale
+	 * price is a mistake or entirely intentional (a manual one-off, another plugin
+	 * doing its own job correctly), so it only ever surfaces these, it doesn't clear
+	 * anything on its own.
+	 */
+	private function render_untracked_tab() {
+		$untracked = $this->get_untracked_sale_products();
+		?>
+		<div class="discount-card">
+			<h3><?php esc_html_e( 'Untracked Discounts', 'wc-tag-discount' ); ?></h3>
+			<p><?php esc_html_e( 'Products currently on sale that this plugin did not discount -- a manually-set sale price, another plugin, or a leftover from before this one was installed. Nothing here is touched automatically; clear a price only if it should not be discounted.', 'wc-tag-discount' ); ?></p>
+
+			<?php if ( empty( $untracked ) ) : ?>
+				<p><?php esc_html_e( 'None found -- every current discount is one this plugin applied.', 'wc-tag-discount' ); ?></p>
+			<?php else : ?>
+				<div class="button-group">
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('<?php echo esc_js( sprintf(
+						/* translators: %d: number of products whose sale price would be cleared. */
+						_n( 'Clear the sale price on %d untracked product? This cannot be undone.', 'Clear the sale price on all %d untracked products? This cannot be undone.', count( $untracked ), 'wc-tag-discount' ),
+						count( $untracked )
+					) ); ?>');">
+						<input type="hidden" name="action" value="clear_all_untracked_tag_discounts">
+						<?php wp_nonce_field( 'wc_tag_discount_clear_untracked_all' ); ?>
+						<button type="submit" class="button"><?php esc_html_e( 'Clear All Untracked Sale Prices', 'wc-tag-discount' ); ?></button>
+					</form>
+				</div>
+
+				<div class="product-preview">
+					<?php foreach ( $untracked as $product_id => $product ) : ?>
+						<?php
+						$regular_price = $this->get_discountable_regular_price( $product );
+						$sale_price    = $product->get_sale_price( 'edit' );
+						?>
+						<div class="product-item">
+							<span>
+								<a href="<?php echo esc_url( get_edit_post_link( $product->get_parent_id() ? $product->get_parent_id() : $product_id ) ); ?>" target="_blank" rel="noopener noreferrer">
+									<?php echo esc_html( $product->get_name() ); ?>
+								</a>
+							</span>
+							<span class="price-info">
+								<?php if ( null !== $regular_price && '' !== $sale_price ) : ?>
+									<span class="old-price"><?php echo wp_kses_post( wc_price( $regular_price ) ); ?></span>
+									<span class="new-price"><?php echo wp_kses_post( wc_price( $sale_price ) ); ?></span>
+								<?php endif; ?>
+							</span>
+							<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('<?php echo esc_js( __( 'Clear this sale price? This cannot be undone.', 'wc-tag-discount' ) ); ?>');">
+								<input type="hidden" name="action" value="clear_untracked_tag_discount">
+								<input type="hidden" name="product_id" value="<?php echo esc_attr( $product_id ); ?>">
+								<?php wp_nonce_field( 'wc_tag_discount_clear_untracked' ); ?>
+								<button type="submit" class="button"><?php esc_html_e( 'Clear Sale Price', 'wc-tag-discount' ); ?></button>
+							</form>
+						</div>
+					<?php endforeach; ?>
+				</div>
+			<?php endif; ?>
 		</div>
 		<?php
 	}
@@ -946,6 +1016,57 @@ class WC_Tag_Discount_Manager {
 					'page'    => 'tag-discount-manager',
 					'tab'     => 'rules',
 					'message' => 'orphan_recreated',
+				),
+				admin_url( 'admin.php' )
+			)
+		);
+		exit;
+	}
+
+	public function handle_clear_untracked_discount() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'wc-tag-discount' ) );
+		}
+		check_admin_referer( 'wc_tag_discount_clear_untracked' );
+
+		$product_id = isset( $_POST['product_id'] ) ? absint( $_POST['product_id'] ) : 0;
+		$product    = $product_id ? wc_get_product( $product_id ) : false;
+		$count      = ( $product && $this->clear_untracked_discount( $product ) ) ? 1 : 0;
+
+		wp_safe_redirect(
+			add_query_arg(
+				array(
+					'page'    => 'tag-discount-manager',
+					'tab'     => 'untracked',
+					'message' => 'untracked_cleared',
+					'count'   => $count,
+				),
+				admin_url( 'admin.php' )
+			)
+		);
+		exit;
+	}
+
+	public function handle_clear_all_untracked_discounts() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'wc-tag-discount' ) );
+		}
+		check_admin_referer( 'wc_tag_discount_clear_untracked_all' );
+
+		$count = 0;
+		foreach ( $this->get_untracked_sale_products() as $product ) {
+			if ( $this->clear_untracked_discount( $product ) ) {
+				++$count;
+			}
+		}
+
+		wp_safe_redirect(
+			add_query_arg(
+				array(
+					'page'    => 'tag-discount-manager',
+					'tab'     => 'untracked',
+					'message' => 'untracked_cleared',
+					'count'   => $count,
 				),
 				admin_url( 'admin.php' )
 			)
@@ -1503,5 +1624,62 @@ class WC_Tag_Discount_Manager {
 				'meta_value'     => $rule_key, // phpcs:ignore WordPress.DB.SlowDBQuery.slow_db_query_meta_value -- exact match on our own indexed-by-usage meta key, needed to scope a reverse to one rule.
 			)
 		);
+	}
+
+	/**
+	 * Every simple product or variation that WooCommerce considers on sale right now,
+	 * but that this plugin never touched -- no _wc_tag_discount_rule meta at all.
+	 * Manually-set sale prices, another plugin's discount, a leftover from before this
+	 * plugin was installed, WooCommerce's own native scheduled sale -- any of those.
+	 * The plugin can't be the source of truth for "what's on sale" while prices like
+	 * that exist outside its view, so this surfaces them for a manual decision instead
+	 * of silently ignoring them.
+	 *
+	 * Built on wc_get_product_ids_on_sale() -- WooCommerce's own cached "on sale" index
+	 * (the same one the shop's Sale page and on-sale badge use) -- rather than scanning
+	 * every product, so this stays cheap as the catalog grows. That function returns
+	 * the parent ID for a variable product if any variation is on sale, so each
+	 * variation still needs its own is_on_sale()/meta check to know which one(s).
+	 */
+	private function get_untracked_sale_products() {
+		$untracked = array();
+
+		foreach ( wc_get_product_ids_on_sale() as $id ) {
+			$product = wc_get_product( $id );
+			if ( ! $product ) {
+				continue;
+			}
+
+			if ( $product->is_type( 'variable' ) ) {
+				foreach ( $product->get_children() as $variation_id ) {
+					$variation = wc_get_product( $variation_id );
+					if ( $variation && $variation->is_on_sale() && '' === $variation->get_meta( self::META_RULE, true ) ) {
+						$untracked[ $variation_id ] = $variation;
+					}
+				}
+			} elseif ( $product->is_on_sale() && '' === $product->get_meta( self::META_RULE, true ) ) {
+				$untracked[ $id ] = $product;
+			}
+		}
+
+		return $untracked;
+	}
+
+	/**
+	 * Removes a sale price this plugin never set. Unlike reverse_discount_on_product()
+	 * this has no prior sale price to restore -- there's no META_PREV_SALE, because the
+	 * plugin never touched this product to capture one -- so "clearing" always means
+	 * no sale price at all, not reverting to some earlier value. Never touches the
+	 * regular price, same guarantee as everywhere else in this plugin.
+	 */
+	private function clear_untracked_discount( $product ) {
+		if ( '' !== $product->get_meta( self::META_RULE, true ) || ! $product->is_on_sale() ) {
+			return false;
+		}
+
+		$product->set_sale_price( '' );
+		$product->save();
+
+		return true;
 	}
 }

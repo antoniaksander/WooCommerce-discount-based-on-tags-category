@@ -6,7 +6,7 @@ Tested up to: 7.0.2
 Requires PHP: 7.4
 WC requires at least: 5.0
 WC tested up to: 10.7
-Stable tag: 1.8.1
+Stable tag: 1.9.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -23,6 +23,7 @@ WooCommerce Tag-Based Discount Manager lets you run sitewide sales by product ta
 * Automatically re-evaluates a product's discount when you add, remove, or change its tags
 * Works with simple products and each variation of a variable product
 * Pause auto-apply before a large bulk import so it doesn't double the write cost per product; resumes on its own on a timer even if you forget
+* See every product on sale that this plugin didn't discount -- a manual price, another plugin, or a leftover -- so it can actually be the source of truth for what's discounted on your store, not just for the discounts it applied itself
 
 = Design notes =
 
@@ -54,6 +55,9 @@ Uninstalling (not just deactivating) restores every discounted product's prior s
 It can, if many of the imported products carry a discounted tag or category — each match triggers a full product save on top of the import's own save. Before a large import, use "Pause Auto-Apply" on the Dashboard (WooCommerce → Tag Discounts). New products won't be auto-discounted while paused; run "Apply Discounts Now" once when the import finishes. The pause resumes on its own after the timer you chose, even if you forget to turn it back on, and a reminder banner appears throughout wp-admin the whole time it's active.
 
 == Changelog ==
+
+= 1.9.0 =
+* Add an "Untracked Discounts" tab: lists every product currently on sale that this plugin didn't discount -- a manually-set sale price, another plugin, WooCommerce's own native scheduled sale, or a leftover from before this plugin was installed. Clear one at a time or all at once; nothing here is touched automatically, since the plugin has no way to know whether an untracked price is a mistake or intentional. Built on WooCommerce's own cached on-sale index, so it stays cheap on a large catalog.
 
 = 1.8.1 =
 * Fix: 1.8.0 made Apply also reverse a rule's discount on products that no longer match it, but did so silently — the same "Apply Discounts Now" / "Apply This Rule Now" buttons you already knew, with no indication anything more than adding discounts was about to happen. If there's anything for a rule to reverse, applying it now shows the count up front and asks for confirmation before touching a live price, both in bulk and per-rule.
