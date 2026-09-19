@@ -343,6 +343,13 @@ class WC_Tag_Discount_Manager {
 			}
 			$stale_total += $this->count_stale_for_rule( $rule_key, $rule );
 		}
+		$stale_total_confirm_msg = esc_js(
+			sprintf(
+				/* translators: %d: number of products whose discount would be reversed. */
+				_n( 'This will also reverse the discount on %d product that no longer matches its rule. Continue?', 'This will also reverse the discount on %d products that no longer match their rule. Continue?', $stale_total, 'wc-tag-discount' ),
+				$stale_total
+			)
+		);
 		?>
 		<?php $this->render_orphaned_rules_card(); ?>
 
@@ -366,11 +373,7 @@ class WC_Tag_Discount_Manager {
 			<div class="button-group">
 				<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
 					<?php if ( $stale_total > 0 ) : ?>
-						onsubmit="return confirm('<?php echo esc_js( sprintf(
-							/* translators: %d: number of products whose discount would be reversed. */
-							_n( 'This will also reverse the discount on %d product that no longer matches its rule. Continue?', 'This will also reverse the discount on %d products that no longer match their rule. Continue?', $stale_total, 'wc-tag-discount' ),
-							$stale_total
-						) ); ?>');"
+						onsubmit="return confirm('<?php echo $stale_total_confirm_msg; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped above via esc_js(). ?>');"
 					<?php endif; ?>
 				>
 					<input type="hidden" name="action" value="apply_tag_discounts">
@@ -500,7 +503,14 @@ class WC_Tag_Discount_Manager {
 	 * anything on its own.
 	 */
 	private function render_untracked_tab() {
-		$untracked = $this->get_untracked_sale_products();
+		$untracked             = $this->get_untracked_sale_products();
+		$clear_all_confirm_msg = esc_js(
+			sprintf(
+				/* translators: %d: number of products whose sale price would be cleared. */
+				_n( 'Clear the sale price on %d untracked product? This cannot be undone.', 'Clear the sale price on all %d untracked products? This cannot be undone.', count( $untracked ), 'wc-tag-discount' ),
+				count( $untracked )
+			)
+		);
 		?>
 		<div class="discount-card">
 			<h3><?php esc_html_e( 'Untracked Discounts', 'wc-tag-discount' ); ?></h3>
@@ -510,11 +520,7 @@ class WC_Tag_Discount_Manager {
 				<p><?php esc_html_e( 'None found -- every current discount is one this plugin applied.', 'wc-tag-discount' ); ?></p>
 			<?php else : ?>
 				<div class="button-group">
-					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('<?php echo esc_js( sprintf(
-						/* translators: %d: number of products whose sale price would be cleared. */
-						_n( 'Clear the sale price on %d untracked product? This cannot be undone.', 'Clear the sale price on all %d untracked products? This cannot be undone.', count( $untracked ), 'wc-tag-discount' ),
-						count( $untracked )
-					) ); ?>');">
+					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" onsubmit="return confirm('<?php echo $clear_all_confirm_msg; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped above via esc_js(). ?>');">
 						<input type="hidden" name="action" value="clear_all_untracked_tag_discounts">
 						<?php wp_nonce_field( 'wc_tag_discount_clear_untracked_all' ); ?>
 						<button type="submit" class="button"><?php esc_html_e( 'Clear All Untracked Sale Prices', 'wc-tag-discount' ); ?></button>
@@ -607,9 +613,16 @@ class WC_Tag_Discount_Manager {
 					<?php endif; ?>
 					<p class="rule-status">
 						<?php
-						$match_count  = count( $this->get_products_for_rule( $rule ) );
-						$active_count = count( $this->get_products_with_rule( $rule_key ) );
-						$stale_count  = $is_expired ? 0 : $this->count_stale_for_rule( $rule_key, $rule );
+						$match_count            = count( $this->get_products_for_rule( $rule ) );
+						$active_count           = count( $this->get_products_with_rule( $rule_key ) );
+						$stale_count            = $is_expired ? 0 : $this->count_stale_for_rule( $rule_key, $rule );
+						$rule_stale_confirm_msg = esc_js(
+							sprintf(
+								/* translators: %d: number of products whose discount would be reversed. */
+								_n( 'This will also reverse the discount on %d product that no longer matches this rule. Continue?', 'This will also reverse the discount on %d products that no longer match this rule. Continue?', $stale_count, 'wc-tag-discount' ),
+								$stale_count
+							)
+						);
 						printf(
 							/* translators: 1: number of products matching the tag/category, 2: number currently discounted under this rule. */
 							esc_html__( '%1$d products match this rule right now — %2$d are currently discounted under it.', 'wc-tag-discount' ),
@@ -639,11 +652,7 @@ class WC_Tag_Discount_Manager {
 				<div class="button-group rule-actions">
 					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>"
 						<?php if ( $stale_count > 0 ) : ?>
-							onsubmit="return confirm('<?php echo esc_js( sprintf(
-								/* translators: %d: number of products whose discount would be reversed. */
-								_n( 'This will also reverse the discount on %d product that no longer matches this rule. Continue?', 'This will also reverse the discount on %d products that no longer match this rule. Continue?', $stale_count, 'wc-tag-discount' ),
-								$stale_count
-							) ); ?>');"
+							onsubmit="return confirm('<?php echo $rule_stale_confirm_msg; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Escaped above via esc_js(). ?>');"
 						<?php endif; ?>
 					>
 						<input type="hidden" name="action" value="apply_tag_discount_rule">
@@ -998,7 +1007,7 @@ class WC_Tag_Discount_Manager {
 			exit;
 		}
 
-		$rules = $this->get_discount_rules();
+		$rules                            = $this->get_discount_rules();
 		$rules[ $taxonomy . '_' . $slug ] = array(
 			'slug'             => $slug,
 			'taxonomy'         => $taxonomy,
@@ -1174,7 +1183,7 @@ class WC_Tag_Discount_Manager {
 				}
 
 				$guessed_discount = ( $taxonomy && $slug ) ? $this->guess_discount_for_orphan( $rule_key ) : null;
-				$can_recreate      = ( $taxonomy && $slug && null !== $guessed_discount && $guessed_discount > 0 );
+				$can_recreate     = ( $taxonomy && $slug && null !== $guessed_discount && $guessed_discount > 0 );
 				?>
 				<div class="rule-row-card rule-row-card--expired">
 					<p class="rule-status">

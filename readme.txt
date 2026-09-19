@@ -6,7 +6,7 @@ Tested up to: 7.0.2
 Requires PHP: 7.4
 WC requires at least: 5.0
 WC tested up to: 10.7
-Stable tag: 1.9.0
+Stable tag: 1.9.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -55,6 +55,9 @@ Uninstalling (not just deactivating) restores every discounted product's prior s
 It can, if many of the imported products carry a discounted tag or category — each match triggers a full product save on top of the import's own save. Before a large import, use "Pause Auto-Apply" on the Dashboard (WooCommerce → Tag Discounts). New products won't be auto-discounted while paused; run "Apply Discounts Now" once when the import finishes. The pause resumes on its own after the timer you chose, even if you forget to turn it back on, and a reminder banner appears throughout wp-admin the whole time it's active.
 
 == Changelog ==
+
+= 1.9.1 =
+* Fix: coding-standards violations that had been failing CI on every push since 1.7.0 (multi-line PHP embedded inside HTML `onsubmit` attributes). No functional change -- the confirmation dialogs on Apply/Clear All buttons produce identical output; verified against real store data on the dev site.
 
 = 1.9.0 =
 * Add an "Untracked Discounts" tab: lists every product currently on sale that this plugin didn't discount -- a manually-set sale price, another plugin, WooCommerce's own native scheduled sale, or a leftover from before this plugin was installed. Clear one at a time or all at once; nothing here is touched automatically, since the plugin has no way to know whether an untracked price is a mistake or intentional. Built on WooCommerce's own cached on-sale index, so it stays cheap on a large catalog.
