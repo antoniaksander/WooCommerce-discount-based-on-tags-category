@@ -7,6 +7,7 @@ A WordPress plugin for WooCommerce that allows you to apply and manage discounts
 - Apply discounts based on product tags or categories
 - Preview discount impact before applying
 - Schedule automatic discount application and reversal
+- Optional price rounding (down / nearest / up to x.95, x.99, x.45/x.95, x.00/x.50 and more), off by default
 - Support for simple, variable products and variations
 - Real-time updates when products are modified
 - Bulk operations with detailed reporting

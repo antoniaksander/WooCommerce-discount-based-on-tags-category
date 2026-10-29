@@ -3,7 +3,7 @@
  * Plugin Name: WooCommerce Tag-Based Discount Manager
  * Plugin URI: https://github.com/antoniaksander/WooCommerce-discount-based-on-tags-category
  * Description: Apply and manage discounts based on product tags or categories, with preview, per-rule scheduling, and reversal
- * Version: 1.9.1
+ * Version: 1.10.0
  * Author: antoniaksander
  * Author URI: https://github.com/antoniaksander
  * Text Domain: wc-tag-discount
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WC_TAG_DISCOUNT_VERSION', '1.9.1' );
+define( 'WC_TAG_DISCOUNT_VERSION', '1.10.0' );
 define( 'WC_TAG_DISCOUNT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WC_TAG_DISCOUNT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -66,6 +66,9 @@ if ( ! wc_tag_discount_is_woocommerce_active() ) {
 }
 
 // Include the main class
+if ( ! class_exists( 'WC_Tag_Discount_Price' ) ) {
+	require_once WC_TAG_DISCOUNT_PLUGIN_DIR . 'includes/class-wc-tag-discount-price.php';
+}
 if ( ! class_exists( 'WC_Tag_Discount_Manager' ) ) {
 	require_once WC_TAG_DISCOUNT_PLUGIN_DIR . 'includes/class-wc-tag-discount-manager.php';
 }
@@ -105,6 +108,7 @@ add_action(
 			'orphan_recreated'   => __( 'Rule recreated. It\'s now listed and editable on the Discount Rules tab.', 'wc-tag-discount' ),
 			// translators: %d: number of untracked sale prices cleared.
 			'untracked_cleared'  => sprintf( _n( 'Sale price cleared on %d product.', 'Sale prices cleared on %d products.', $count, 'wc-tag-discount' ), $count ),
+			'rounding_saved'     => __( 'Rounding saved. Prices already discounted keep their current sale price until you run "Apply Discounts Now" (or the product is next saved). The preview below already shows the new prices.', 'wc-tag-discount' ),
 		);
 
 		// Separate map: these render as a warning, not a success, and skip the
