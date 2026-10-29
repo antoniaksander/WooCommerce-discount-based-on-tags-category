@@ -6,7 +6,7 @@ Tested up to: 7.0.2
 Requires PHP: 7.4
 WC requires at least: 5.0
 WC tested up to: 10.7
-Stable tag: 1.10.0
+Stable tag: 1.10.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -60,6 +60,9 @@ It can, if many of the imported products carry a discounted tag or category — 
 Yes. On the Dashboard, under Price Rounding, pick a mode and a price ending. Round down keeps the discount at least the stated percentage; round up and nearest can make it slightly smaller, so check your local price-display rules before using them. A rounded price never reaches the regular price, and if rounding down would bring a very cheap item to zero, its exact price is kept. Saving the setting doesn't change live prices on its own: the preview shows the new prices, and they're written on the next "Apply Discounts Now" (or when a product is next saved).
 
 == Changelog ==
+
+= 1.10.1 =
+* Fix: rules with a future "Apply at" date were treated as live by "Apply Discounts Now", by every product save and by the Dashboard preview, so a rule scheduled weeks ahead (e.g. Black Friday) went on sale the first time anyone pressed Apply. A scheduled rule now only starts at its apply date, through its own scheduled event. "Apply This Rule Now" is disabled on it, the Rules tab marks it as Scheduled, and "Apply Discounts Now" removes any discount a scheduled rule already left on products.
 
 = 1.10.0 =
 * Add optional price rounding (Dashboard › Price Rounding): off, round down, nearest or up, to x.x0/x.x5, x.x0, x.00/x.25/x.50/x.75, x.00/x.50, x.45/x.95, x.95, x.99 or whole amounts. Off by default, so existing stores see no change. The Dashboard preview and the real apply share one calculation, and a rounded price never reaches the regular price.

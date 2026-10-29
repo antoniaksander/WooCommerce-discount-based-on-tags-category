@@ -154,17 +154,46 @@ class WC_Tag_Discount_Manager {
 	}
 
 	/**
-	 * get_discount_rules() filtered down to rules that can still actually
-	 * apply to a product. Use this (not get_discount_rules() directly) for
-	 * anything that matches/applies a rule; use get_discount_rules() only for
-	 * rule management (the Rules tab needs to show and let you edit/delete
-	 * expired rules too).
+	 * A rule with an apply_datetime in the future hasn't started yet. Only its
+	 * one-time cron event (wc_tag_discount_apply_rule_scheduled) may apply it,
+	 * once that time comes. Without this check, "Apply Discounts Now" and every
+	 * product save treated a scheduled rule as live, so a Black Friday rule set
+	 * up weeks ahead went on sale the first time anyone pressed Apply.
+	 */
+	private function is_rule_pending( $rule ) {
+		if ( '' === $rule['apply_datetime'] ) {
+			return false;
+		}
+
+		$timestamp = $this->schedule_datetime_to_timestamp( $rule['apply_datetime'] );
+
+		return false !== $timestamp && $timestamp > time();
+	}
+
+	/**
+	 * get_discount_rules() filtered down to rules that can actually apply to a
+	 * product right now: started (or no start date) and not expired. Use this
+	 * (not get_discount_rules() directly) for anything that matches/applies a
+	 * rule; use get_discount_rules() only for rule management (the Rules tab
+	 * needs to show and let you edit/delete scheduled and expired rules too).
 	 */
 	private function get_active_discount_rules() {
 		return array_filter(
 			$this->get_discount_rules(),
 			function ( $rule ) {
-				return ! $this->is_rule_expired( $rule );
+				return ! $this->is_rule_expired( $rule ) && ! $this->is_rule_pending( $rule );
+			}
+		);
+	}
+
+	/**
+	 * Rules whose start date is still in the future.
+	 */
+	private function get_pending_discount_rules() {
+		return array_filter(
+			$this->get_discount_rules(),
+			function ( $rule ) {
+				return $this->is_rule_pending( $rule );
 			}
 		);
 	}
@@ -674,6 +703,7 @@ class WC_Tag_Discount_Manager {
 		$apply_datetime   = $is_new ? '' : $rule['apply_datetime'];
 		$reverse_datetime = $is_new ? '' : $rule['reverse_datetime'];
 		$is_expired       = ! $is_new && $this->is_rule_expired( $rule );
+		$is_pending       = ! $is_new && ! $is_expired && $this->is_rule_pending( $rule );
 		?>
 		<div class="rule-row-card<?php echo $is_expired ? ' rule-row-card--expired' : ''; ?>">
 			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>" class="rule-form">
@@ -717,12 +747,16 @@ class WC_Tag_Discount_Manager {
 						<p class="rule-status rule-status--expired">
 							<?php esc_html_e( '⚠ Expired — its reverse date has passed, so it no longer applies to any product (new, edited, or via Apply). Update the date above and save, or delete the rule, to reactivate it.', 'wc-tag-discount' ); ?>
 						</p>
+					<?php elseif ( $is_pending ) : ?>
+						<p class="rule-status">
+							<?php esc_html_e( '⏳ Scheduled — it starts at its apply date and won\'t touch any product before then (not on save, not via Apply). To start it now, clear or change the apply date and save.', 'wc-tag-discount' ); ?>
+						</p>
 					<?php endif; ?>
 					<p class="rule-status">
 						<?php
 						$match_count            = count( $this->get_products_for_rule( $rule ) );
 						$active_count           = count( $this->get_products_with_rule( $rule_key ) );
-						$stale_count            = $is_expired ? 0 : $this->count_stale_for_rule( $rule_key, $rule );
+						$stale_count            = ( $is_expired || $is_pending ) ? 0 : $this->count_stale_for_rule( $rule_key, $rule );
 						$rule_stale_confirm_msg = esc_js(
 							sprintf(
 								/* translators: %d: number of products whose discount would be reversed. */
@@ -765,7 +799,15 @@ class WC_Tag_Discount_Manager {
 						<input type="hidden" name="action" value="apply_tag_discount_rule">
 						<input type="hidden" name="rule_key" value="<?php echo esc_attr( $rule_key ); ?>">
 						<?php wp_nonce_field( 'wc_tag_discount_apply_rule' ); ?>
-						<button type="submit" class="button" <?php disabled( $is_expired ); ?> title="<?php echo $is_expired ? esc_attr__( 'This rule is expired -- update its reverse date to reactivate it first.', 'wc-tag-discount' ) : ''; ?>"><?php esc_html_e( 'Apply This Rule Now', 'wc-tag-discount' ); ?></button>
+						<?php
+						$apply_disabled_title = '';
+						if ( $is_expired ) {
+							$apply_disabled_title = __( 'This rule is expired -- update its reverse date to reactivate it first.', 'wc-tag-discount' );
+						} elseif ( $is_pending ) {
+							$apply_disabled_title = __( 'This rule hasn\'t started yet -- it applies itself at its apply date.', 'wc-tag-discount' );
+						}
+						?>
+						<button type="submit" class="button" <?php disabled( $is_expired || $is_pending ); ?> title="<?php echo esc_attr( $apply_disabled_title ); ?>"><?php esc_html_e( 'Apply This Rule Now', 'wc-tag-discount' ); ?></button>
 					</form>
 					<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
 						<input type="hidden" name="action" value="reverse_tag_discount_rule">
@@ -1001,6 +1043,20 @@ class WC_Tag_Discount_Manager {
 						'page'    => 'tag-discount-manager',
 						'tab'     => 'rules',
 						'message' => 'rule_expired',
+					),
+					admin_url( 'admin.php' )
+				)
+			);
+			exit;
+		}
+
+		if ( isset( $rules[ $rule_key ] ) && $this->is_rule_pending( $rules[ $rule_key ] ) ) {
+			wp_safe_redirect(
+				add_query_arg(
+					array(
+						'page'    => 'tag-discount-manager',
+						'tab'     => 'rules',
+						'message' => 'rule_pending',
 					),
 					admin_url( 'admin.php' )
 				)
@@ -1488,6 +1544,11 @@ class WC_Tag_Discount_Manager {
 				$affected = array();
 				foreach ( $this->get_active_discount_rules() as $rule_key => $rule ) {
 					$affected += $this->sync_rule( $rule_key, $rule );
+				}
+				// A rule that hasn't started yet must not be on any product. Clears
+				// discounts an earlier version applied ahead of the start date.
+				foreach ( array_keys( $this->get_pending_discount_rules() ) as $rule_key ) {
+					$this->reverse_products( $this->get_products_with_rule( $rule_key ) );
 				}
 				return count( $affected );
 			}
