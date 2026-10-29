@@ -128,14 +128,14 @@ foreach ( $prices as $regular ) {
 	foreach ( array( 5, 10, 15, 20, 25, 30, 50 ) as $discount ) {
 		$exact = price( $regular, $discount );
 		foreach ( array_keys( WC_Tag_Discount_Price::presets() ) as $preset ) {
-			foreach ( array( 'down', 'nearest', 'up' ) as $mode ) {
-				$rounded = price( $regular, $discount, $mode, $preset );
+			foreach ( array( 'down', 'nearest', 'up' ) as $round_mode ) {
+				$rounded = price( $regular, $discount, $round_mode, $preset );
 				++$checks;
 				if ( $rounded <= 0 || $rounded >= $regular ) {
 					++$failures;
-					echo "FAIL {$regular} -{$discount}% {$mode} {$preset}: {$rounded} not between 0 and the regular price\n";
+					echo "FAIL {$regular} -{$discount}% {$round_mode} {$preset}: {$rounded} not between 0 and the regular price\n";
 				}
-				if ( 'down' === $mode && $rounded > $exact ) {
+				if ( 'down' === $round_mode && $rounded > $exact ) {
 					++$failures;
 					echo "FAIL {$regular} -{$discount}% down {$preset}: {$rounded} above exact {$exact}\n";
 				}
