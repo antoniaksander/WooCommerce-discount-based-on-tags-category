@@ -10,6 +10,7 @@ class WC_Tag_Discount_Manager {
 	const META_PREV_SALE  = '_wc_tag_discount_prev_sale_price';
 	const OPT_RULES       = 'wc_tag_discount_rules';
 	const OPT_PAUSE_UNTIL = 'wc_tag_discount_pause_until';
+	const OPT_ROUNDING    = 'wc_tag_discount_rounding';
 
 	public function __construct() {
 		add_action( 'admin_menu', array( $this, 'add_admin_menu' ) );
@@ -25,6 +26,7 @@ class WC_Tag_Discount_Manager {
 		add_action( 'admin_post_recreate_orphaned_tag_discount_rule', array( $this, 'handle_recreate_orphaned_rule' ) );
 		add_action( 'admin_post_clear_untracked_tag_discount', array( $this, 'handle_clear_untracked_discount' ) );
 		add_action( 'admin_post_clear_all_untracked_tag_discounts', array( $this, 'handle_clear_all_untracked_discounts' ) );
+		add_action( 'admin_post_save_tag_discount_rounding', array( $this, 'handle_save_rounding' ) );
 		add_action( 'admin_enqueue_scripts', array( $this, 'enqueue_admin_styles' ) );
 		add_action( 'admin_notices', array( $this, 'render_pause_notice' ) );
 		add_action( 'admin_notices', array( $this, 'render_orphaned_rules_notice' ) );
@@ -205,6 +207,55 @@ class WC_Tag_Discount_Manager {
 		$regular_price = $product->get_regular_price( 'edit' );
 
 		return ( '' !== $regular_price && is_numeric( $regular_price ) ) ? (float) $regular_price : null;
+	}
+
+	/**
+	 * Stored rounding setting, falling back to off for anything unknown, so a
+	 * missing or hand-edited option never changes prices.
+	 */
+	private function get_rounding_settings() {
+		$saved = get_option( self::OPT_ROUNDING, array() );
+		$saved = is_array( $saved ) ? $saved : array();
+
+		$mode   = isset( $saved['mode'] ) && in_array( $saved['mode'], WC_Tag_Discount_Price::modes(), true ) ? $saved['mode'] : WC_Tag_Discount_Price::MODE_OFF;
+		$preset = isset( $saved['preset'] ) && isset( WC_Tag_Discount_Price::presets()[ $saved['preset'] ] ) ? $saved['preset'] : 'end_95';
+
+		return array(
+			'mode'   => $mode,
+			'preset' => $preset,
+		);
+	}
+
+	/**
+	 * The one place a sale price is calculated, used by both the Dashboard preview
+	 * and the real apply, so what's previewed is what gets written.
+	 */
+	private function calculate_sale_price( $regular_price, $discount ) {
+		$rounding = $this->get_rounding_settings();
+
+		return WC_Tag_Discount_Price::discounted( $regular_price, $discount, wc_get_price_decimals(), $rounding['mode'], $rounding['preset'] );
+	}
+
+	private function rounding_mode_labels() {
+		return array(
+			WC_Tag_Discount_Price::MODE_OFF     => __( 'Off (exact %)', 'wc-tag-discount' ),
+			WC_Tag_Discount_Price::MODE_DOWN    => __( 'Round down', 'wc-tag-discount' ),
+			WC_Tag_Discount_Price::MODE_NEAREST => __( 'Round to nearest', 'wc-tag-discount' ),
+			WC_Tag_Discount_Price::MODE_UP      => __( 'Round up', 'wc-tag-discount' ),
+		);
+	}
+
+	private function rounding_preset_labels() {
+		return array(
+			'step_5'    => __( 'x.x0 / x.x5 (0.05 steps)', 'wc-tag-discount' ),
+			'step_10'   => __( 'x.x0 (0.10 steps)', 'wc-tag-discount' ),
+			'step_25'   => __( 'x.00 / x.25 / x.50 / x.75', 'wc-tag-discount' ),
+			'step_50'   => __( 'x.00 / x.50', 'wc-tag-discount' ),
+			'end_45_95' => __( 'x.45 / x.95', 'wc-tag-discount' ),
+			'end_95'    => __( 'x.95', 'wc-tag-discount' ),
+			'end_99'    => __( 'x.99', 'wc-tag-discount' ),
+			'step_100'  => __( 'Whole amounts (x.00)', 'wc-tag-discount' ),
+		);
 	}
 
 	/**
@@ -390,6 +441,8 @@ class WC_Tag_Discount_Manager {
 
 		<?php $this->render_bulk_operations_card(); ?>
 
+		<?php $this->render_rounding_card(); ?>
+
 		<div class="discount-card">
 			<h3><?php esc_html_e( 'Preview', 'wc-tag-discount' ); ?></h3>
 			<?php if ( empty( $preview ) ) : ?>
@@ -404,7 +457,7 @@ class WC_Tag_Discount_Manager {
 						}
 						$regular_price = $this->get_discountable_regular_price( $product );
 						$new_price     = ( null !== $regular_price )
-							? round( $regular_price * ( 1 - $rule['discount'] / 100 ), wc_get_price_decimals() )
+							? $this->calculate_sale_price( $regular_price, $rule['discount'] )
 							: null;
 						?>
 						<div class="product-item">
@@ -467,6 +520,60 @@ class WC_Tag_Discount_Manager {
 					<button type="submit" class="button"><?php esc_html_e( 'Pause Auto-Apply', 'wc-tag-discount' ); ?></button>
 				</form>
 			<?php endif; ?>
+		</div>
+		<?php
+	}
+
+	/**
+	 * Store-wide rounding of every rule's sale price. Saving it doesn't touch any
+	 * product: the preview shows the new prices straight away, and live prices
+	 * change on the next Apply (or when a product is next saved).
+	 */
+	private function render_rounding_card() {
+		$rounding = $this->get_rounding_settings();
+		$example  = $this->calculate_sale_price( 13.95, 20 );
+		?>
+		<div class="discount-card">
+			<h3><?php esc_html_e( 'Price Rounding', 'wc-tag-discount' ); ?></h3>
+			<p><?php esc_html_e( 'Rounds every discounted price to a tidy ending instead of the exact percentage (e.g. 11.16 becomes 10.95). Round down keeps the discount at least the stated %. Rounding up makes the real discount smaller than the rule\'s %; check your local price-display rules. A rounded price never reaches the regular price.', 'wc-tag-discount' ); ?></p>
+			<?php if ( 2 !== (int) wc_get_price_decimals() ) : ?>
+				<p class="rule-status rule-status--expired"><?php esc_html_e( 'Rounding only works for prices with two decimals. Your store uses a different number, so prices stay exact.', 'wc-tag-discount' ); ?></p>
+			<?php endif; ?>
+			<form method="post" action="<?php echo esc_url( admin_url( 'admin-post.php' ) ); ?>">
+				<input type="hidden" name="action" value="save_tag_discount_rounding">
+				<?php wp_nonce_field( 'wc_tag_discount_save_rounding' ); ?>
+				<div class="rule-row-grid">
+					<div class="rule-field">
+						<label for="rounding_mode"><?php esc_html_e( 'Rounding', 'wc-tag-discount' ); ?></label>
+						<select name="rounding_mode" id="rounding_mode">
+							<?php foreach ( $this->rounding_mode_labels() as $value => $label ) : ?>
+								<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $rounding['mode'], $value ); ?>><?php echo esc_html( $label ); ?></option>
+							<?php endforeach; ?>
+						</select>
+					</div>
+					<div class="rule-field">
+						<label for="rounding_preset"><?php esc_html_e( 'Price ending', 'wc-tag-discount' ); ?></label>
+						<select name="rounding_preset" id="rounding_preset">
+							<?php foreach ( $this->rounding_preset_labels() as $value => $label ) : ?>
+								<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $rounding['preset'], $value ); ?>><?php echo esc_html( $label ); ?></option>
+							<?php endforeach; ?>
+						</select>
+					</div>
+				</div>
+				<p class="rule-status">
+					<?php
+					printf(
+						/* translators: 1: example regular price, 2: example sale price with the current rounding. */
+						esc_html__( 'Now: %1$s at 20%% off becomes %2$s.', 'wc-tag-discount' ),
+						wp_kses_post( wc_price( 13.95 ) ),
+						wp_kses_post( wc_price( $example ) )
+					);
+					?>
+				</p>
+				<div class="button-group">
+					<button type="submit" class="button button-primary"><?php esc_html_e( 'Save Rounding', 'wc-tag-discount' ); ?></button>
+				</div>
+			</form>
 		</div>
 		<?php
 	}
@@ -811,6 +918,35 @@ class WC_Tag_Discount_Manager {
 					'page'    => 'tag-discount-manager',
 					'tab'     => 'rules',
 					'message' => 'rules_saved',
+				),
+				admin_url( 'admin.php' )
+			)
+		);
+		exit;
+	}
+
+	public function handle_save_rounding() {
+		if ( ! current_user_can( 'manage_woocommerce' ) ) {
+			wp_die( esc_html__( 'You do not have permission to do this.', 'wc-tag-discount' ) );
+		}
+		check_admin_referer( 'wc_tag_discount_save_rounding' );
+
+		$mode   = isset( $_POST['rounding_mode'] ) ? sanitize_key( wp_unslash( $_POST['rounding_mode'] ) ) : '';
+		$preset = isset( $_POST['rounding_preset'] ) ? sanitize_key( wp_unslash( $_POST['rounding_preset'] ) ) : '';
+
+		update_option(
+			self::OPT_ROUNDING,
+			array(
+				'mode'   => in_array( $mode, WC_Tag_Discount_Price::modes(), true ) ? $mode : WC_Tag_Discount_Price::MODE_OFF,
+				'preset' => isset( WC_Tag_Discount_Price::presets()[ $preset ] ) ? $preset : 'end_95',
+			)
+		);
+
+		wp_safe_redirect(
+			add_query_arg(
+				array(
+					'page'    => 'tag-discount-manager',
+					'message' => 'rounding_saved',
 				),
 				admin_url( 'admin.php' )
 			)
@@ -1451,7 +1587,7 @@ class WC_Tag_Discount_Manager {
 			$product->update_meta_data( self::META_PREV_SALE, $product->get_sale_price( 'edit' ) );
 		}
 
-		$discounted = round( $regular_price * ( 1 - ( $rule['discount'] / 100 ) ), wc_get_price_decimals() );
+		$discounted = $this->calculate_sale_price( $regular_price, $rule['discount'] );
 
 		$product->set_sale_price( $discounted );
 		$product->update_meta_data( self::META_RULE, $rule_key );

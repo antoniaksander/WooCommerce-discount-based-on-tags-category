@@ -34,6 +34,7 @@ if ( function_exists( 'wc_get_product' ) ) {
 delete_option( 'wc_tag_discount_rules' );
 delete_option( 'wc_tag_discount_schedule' );
 delete_option( 'wc_tag_discount_pause_until' );
+delete_option( 'wc_tag_discount_rounding' );
 
 // delete_post_meta_by_key() is a single bulk query, not a per-post loop.
 delete_post_meta_by_key( '_wc_tag_discount_rule' );

@@ -6,7 +6,7 @@ Tested up to: 7.0.2
 Requires PHP: 7.4
 WC requires at least: 5.0
 WC tested up to: 10.7
-Stable tag: 1.9.1
+Stable tag: 1.10.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -23,6 +23,7 @@ WooCommerce Tag-Based Discount Manager lets you run sitewide sales by product ta
 * Automatically re-evaluates a product's discount when you add, remove, or change its tags
 * Works with simple products and each variation of a variable product
 * Pause auto-apply before a large bulk import so it doesn't double the write cost per product; resumes on its own on a timer even if you forget
+* Optional price rounding for every discounted price (down, nearest or up, to endings like x.95, x.99, x.45/x.95 or x.00/x.50), so a 20% discount on 13.95 can show 10.95 instead of 11.16. Off by default
 * See every product on sale that this plugin didn't discount -- a manual price, another plugin, or a leftover -- so it can actually be the source of truth for what's discounted on your store, not just for the discounts it applied itself
 
 = Design notes =
@@ -54,7 +55,15 @@ Uninstalling (not just deactivating) restores every discounted product's prior s
 
 It can, if many of the imported products carry a discounted tag or category — each match triggers a full product save on top of the import's own save. Before a large import, use "Pause Auto-Apply" on the Dashboard (WooCommerce → Tag Discounts). New products won't be auto-discounted while paused; run "Apply Discounts Now" once when the import finishes. The pause resumes on its own after the timer you chose, even if you forget to turn it back on, and a reminder banner appears throughout wp-admin the whole time it's active.
 
+= Can discounted prices end in .95 instead of odd cents? =
+
+Yes. On the Dashboard, under Price Rounding, pick a mode and a price ending. Round down keeps the discount at least the stated percentage; round up and nearest can make it slightly smaller, so check your local price-display rules before using them. A rounded price never reaches the regular price, and if rounding down would bring a very cheap item to zero, its exact price is kept. Saving the setting doesn't change live prices on its own: the preview shows the new prices, and they're written on the next "Apply Discounts Now" (or when a product is next saved).
+
 == Changelog ==
+
+= 1.10.0 =
+* Add optional price rounding (Dashboard › Price Rounding): off, round down, nearest or up, to x.x0/x.x5, x.x0, x.00/x.25/x.50/x.75, x.00/x.50, x.45/x.95, x.95, x.99 or whole amounts. Off by default, so existing stores see no change. The Dashboard preview and the real apply share one calculation, and a rounded price never reaches the regular price.
+* Fix: discounted prices were calculated with floating-point maths, so some came out one cent low (149.95 at 10% off gave 134.95 instead of 134.96; 224.95 gave 202.45 instead of 202.46). Prices are now calculated in whole cents with normal half-up rounding. Run "Apply Discounts Now" once to correct existing discounted prices.
 
 = 1.9.1 =
 * Fix: coding-standards violations that had been failing CI on every push since 1.7.0 (multi-line PHP embedded inside HTML `onsubmit` attributes). No functional change -- the confirmation dialogs on Apply/Clear All buttons produce identical output; verified against real store data on the dev site.

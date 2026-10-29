@@ -7,3 +7,4 @@
 /phpcs.xml.dist export-ignore
 /vendor export-ignore
 /dist export-ignore
+/tests export-ignore
