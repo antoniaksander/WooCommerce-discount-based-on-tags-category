@@ -3,7 +3,7 @@
  * Plugin Name: WooCommerce Tag-Based Discount Manager
  * Plugin URI: https://github.com/antoniaksander/WooCommerce-discount-based-on-tags-category
  * Description: Apply and manage discounts based on product tags or categories, with preview, per-rule scheduling, and reversal
- * Version: 1.10.0
+ * Version: 1.10.1
  * Author: antoniaksander
  * Author URI: https://github.com/antoniaksander
  * Text Domain: wc-tag-discount
@@ -22,7 +22,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'WC_TAG_DISCOUNT_VERSION', '1.10.0' );
+define( 'WC_TAG_DISCOUNT_VERSION', '1.10.1' );
 define( 'WC_TAG_DISCOUNT_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'WC_TAG_DISCOUNT_PLUGIN_URL', plugin_dir_url( __FILE__ ) );
 
@@ -115,6 +115,7 @@ add_action(
 		// "Success!" prefix -- not applying anything isn't a success to report.
 		$warning_messages = array(
 			'rule_expired'           => __( 'This rule is expired (its reverse date has passed), so it was not applied. Update the reverse date and save the rule to reactivate it.', 'wc-tag-discount' ),
+			'rule_pending'           => __( 'This rule hasn\'t started yet, so it was not applied. It applies itself at its apply date; to start it now, clear or change the apply date and save the rule.', 'wc-tag-discount' ),
 			'orphan_recreate_failed' => __( 'Could not recreate this rule automatically -- its taxonomy or discount % could not be determined. Add it manually on the Discount Rules tab instead.', 'wc-tag-discount' ),
 		);
 
