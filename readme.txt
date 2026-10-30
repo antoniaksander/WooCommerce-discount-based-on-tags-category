@@ -6,7 +6,7 @@ Tested up to: 7.0.2
 Requires PHP: 7.4
 WC requires at least: 5.0
 WC tested up to: 10.7
-Stable tag: 2.0.0
+Stable tag: 2.0.1
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -60,6 +60,11 @@ It can, if many of the imported products carry a discounted tag or category — 
 Yes. On the Dashboard, under Price Rounding, pick a mode and a price ending. Round down keeps the discount at least the stated percentage; round up and nearest can make it slightly smaller, so check your local price-display rules before using them. A rounded price never reaches the regular price, and if rounding down would bring a very cheap item to zero, its exact price is kept. Saving the setting doesn't change live prices on its own: the preview shows the new prices, and they're written on the next "Apply Discounts Now" (or when a product is next saved).
 
 == Changelog ==
+
+= 2.0.1 =
+* Fix: saving a product on its edit screen undid what the plugin had just applied or reversed. The plugin ran on save_post_product, before WooCommerce stored the form, so the form's old sale price was written back. It now runs after WooCommerce has saved the product (woocommerce_new_product / woocommerce_update_product), so edit-screen saves, Quick/Bulk Edit, the REST API and imports all apply or reverse correctly.
+* Fix: saving a variable product that no longer matches any active rule now reverses the discount on its variations (the discount lives on the variations, not the parent).
+* Fix: a product's own WooCommerce sale dates could hide a rule's discount. An end date left over from an earlier sale, or a start date in the future, made WooCommerce ignore the sale price. Applying a rule now clears those dates while its discount is on and puts them back on reverse.
 
 = 2.0.0 =
 * Add optional price rounding (Dashboard › Price Rounding): off, round down, nearest or up, to x.x0/x.x5, x.x0, x.00/x.25/x.50/x.75, x.00/x.50, x.45/x.95, x.95, x.99 or whole amounts. Off by default, so existing stores see no change. The Dashboard preview and the real apply share one calculation, and a rounded price never reaches the regular price.
