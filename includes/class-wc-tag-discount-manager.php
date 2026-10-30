@@ -8,6 +8,8 @@ class WC_Tag_Discount_Manager {
 
 	const META_RULE       = '_wc_tag_discount_rule';
 	const META_PREV_SALE  = '_wc_tag_discount_prev_sale_price';
+	const META_PREV_FROM  = '_wc_tag_discount_prev_sale_from';
+	const META_PREV_TO    = '_wc_tag_discount_prev_sale_to';
 	const OPT_RULES       = 'wc_tag_discount_rules';
 	const OPT_PAUSE_UNTIL = 'wc_tag_discount_pause_until';
 	const OPT_ROUNDING    = 'wc_tag_discount_rounding';
@@ -31,8 +33,8 @@ class WC_Tag_Discount_Manager {
 		add_action( 'admin_notices', array( $this, 'render_pause_notice' ) );
 		add_action( 'admin_notices', array( $this, 'render_orphaned_rules_notice' ) );
 
-		// Auto-update when products are saved
-		add_action( 'save_post_product', array( $this, 'auto_update_product_discount' ), 10, 1 );
+		// Auto-update when products are saved.
+		$this->hook_auto_update();
 
 		// Per-rule scheduled actions, fired with the rule key as the single argument.
 		add_action( 'wc_tag_discount_apply_rule_scheduled', array( $this, 'handle_apply_rule_scheduled' ), 10, 1 );
@@ -1491,18 +1493,38 @@ class WC_Tag_Discount_Manager {
 	}
 
 	/**
+	 * Runs auto_update_product_discount() after WooCommerce has written a saved
+	 * product, not on save_post_product. save_post_product fires inside
+	 * wp_insert_post(), before WooCommerce stores the edit form's fields, so on
+	 * the product edit screen the form's old sale price was written back over
+	 * whatever this hook had just applied or reversed. woocommerce_new_product
+	 * and woocommerce_update_product fire once the product, its prices and its
+	 * terms are saved, from the edit screen, Quick/Bulk Edit, the REST API and
+	 * imports alike.
+	 */
+	private function hook_auto_update() {
+		add_action( 'woocommerce_new_product', array( $this, 'auto_update_product_discount' ), 10, 1 );
+		add_action( 'woocommerce_update_product', array( $this, 'auto_update_product_discount' ), 10, 1 );
+	}
+
+	private function unhook_auto_update() {
+		remove_action( 'woocommerce_new_product', array( $this, 'auto_update_product_discount' ), 10 );
+		remove_action( 'woocommerce_update_product', array( $this, 'auto_update_product_discount' ), 10 );
+	}
+
+	/**
 	 * Runs a bulk apply/reverse operation with auto_update_product_discount()
 	 * unhooked for its duration. Necessary because saving a variation makes
 	 * WooCommerce internally re-save its parent product to keep the parent's
-	 * cached price range in sync -- that parent save fires save_post_product
-	 * like any other, and without this guard our own auto-detect hook would see
-	 * it, find the parent still carries the matching tag, and silently
+	 * cached price range in sync -- that parent save fires the product-saved
+	 * hooks like any other, and without this guard our own auto-detect hook would
+	 * see it, find the parent still carries the matching tag, and silently
 	 * re-apply the very discount a bulk reverse was in the middle of clearing.
 	 */
 	private function without_auto_update( callable $callback ) {
-		remove_action( 'save_post_product', array( $this, 'auto_update_product_discount' ), 10 );
+		$this->unhook_auto_update();
 		$result = $callback();
-		add_action( 'save_post_product', array( $this, 'auto_update_product_discount' ), 10, 1 );
+		$this->hook_auto_update();
 
 		return $result;
 	}
@@ -1598,7 +1620,7 @@ class WC_Tag_Discount_Manager {
 		}
 
 		// Prevent product->save() below from re-triggering this same hook.
-		remove_action( 'save_post_product', array( $this, 'auto_update_product_discount' ), 10 );
+		$this->unhook_auto_update();
 
 		$rules        = $this->get_active_discount_rules();
 		$matched_rule = null;
@@ -1625,17 +1647,31 @@ class WC_Tag_Discount_Manager {
 			} else {
 				$this->apply_discount_to_product( $product, $matched_key, $matched_rule );
 			}
+		} elseif ( $product->is_type( 'variable' ) ) {
+			// A variable product's discount meta lives on its variations, not the parent.
+			foreach ( $product->get_children() as $variation_id ) {
+				$variation = wc_get_product( $variation_id );
+				if ( $variation ) {
+					$this->reverse_discount_on_product( $variation );
+				}
+			}
 		} elseif ( '' !== $product->get_meta( self::META_RULE, true ) ) {
 			$this->reverse_discount_on_product( $product );
 		}
 
-		add_action( 'save_post_product', array( $this, 'auto_update_product_discount' ), 10, 1 );
+		$this->hook_auto_update();
 	}
 
 	/**
 	 * Discount a single simple product or variation. Only stores/overwrites the
-	 * two meta keys below (no growth on repeat calls) and only ever touches
-	 * the sale-price field, never the regular price.
+	 * meta keys below (no growth on repeat calls) and only ever touches the
+	 * sale-price fields, never the regular price.
+	 *
+	 * WooCommerce's own "Schedule" sale dates are cleared while a rule's discount
+	 * is on: an end date in the past (left over from an earlier sale) or a start
+	 * date in the future makes WooCommerce ignore the sale price, so the rule's
+	 * discount never showed. The rule's own apply/reverse dates are the schedule
+	 * now; the product's previous dates are kept and put back on reverse.
 	 */
 	private function apply_discount_to_product( $product, $rule_key, $rule ) {
 		$regular_price = $this->get_discountable_regular_price( $product );
@@ -1648,9 +1684,20 @@ class WC_Tag_Discount_Manager {
 			$product->update_meta_data( self::META_PREV_SALE, $product->get_sale_price( 'edit' ) );
 		}
 
+		// Same for the sale dates. Checked separately so a product discounted before
+		// these keys existed still gets its dates captured on its next apply.
+		if ( ! $product->meta_exists( self::META_PREV_FROM ) ) {
+			$from = $product->get_date_on_sale_from( 'edit' );
+			$to   = $product->get_date_on_sale_to( 'edit' );
+			$product->update_meta_data( self::META_PREV_FROM, $from ? $from->getTimestamp() : '' );
+			$product->update_meta_data( self::META_PREV_TO, $to ? $to->getTimestamp() : '' );
+		}
+
 		$discounted = $this->calculate_sale_price( $regular_price, $rule['discount'] );
 
 		$product->set_sale_price( $discounted );
+		$product->set_date_on_sale_from( null );
+		$product->set_date_on_sale_to( null );
 		$product->update_meta_data( self::META_RULE, $rule_key );
 		$product->save();
 
@@ -1666,8 +1713,16 @@ class WC_Tag_Discount_Manager {
 		$prev_sale_price = $product->get_meta( self::META_PREV_SALE, true );
 
 		$product->set_sale_price( $prev_sale_price );
+		if ( $product->meta_exists( self::META_PREV_FROM ) ) {
+			$prev_from = $product->get_meta( self::META_PREV_FROM, true );
+			$prev_to   = $product->get_meta( self::META_PREV_TO, true );
+			$product->set_date_on_sale_from( '' !== $prev_from ? (int) $prev_from : null );
+			$product->set_date_on_sale_to( '' !== $prev_to ? (int) $prev_to : null );
+		}
 		$product->delete_meta_data( self::META_RULE );
 		$product->delete_meta_data( self::META_PREV_SALE );
+		$product->delete_meta_data( self::META_PREV_FROM );
+		$product->delete_meta_data( self::META_PREV_TO );
 		$product->save();
 
 		return true;

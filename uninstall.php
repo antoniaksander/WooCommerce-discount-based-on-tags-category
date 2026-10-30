@@ -39,6 +39,8 @@ delete_option( 'wc_tag_discount_rounding' );
 // delete_post_meta_by_key() is a single bulk query, not a per-post loop.
 delete_post_meta_by_key( '_wc_tag_discount_rule' );
 delete_post_meta_by_key( '_wc_tag_discount_prev_sale_price' );
+delete_post_meta_by_key( '_wc_tag_discount_prev_sale_from' );
+delete_post_meta_by_key( '_wc_tag_discount_prev_sale_to' );
 
 wp_clear_scheduled_hook( 'wc_tag_discount_apply_scheduled' );
 wp_clear_scheduled_hook( 'wc_tag_discount_reverse_scheduled' );
