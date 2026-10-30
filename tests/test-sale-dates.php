@@ -12,7 +12,6 @@
 
 // phpcs:disable WordPress.Security.EscapeOutput.OutputNotEscaped -- CLI test output.
 // phpcs:disable Universal.Files.SeparateFunctionsFromOO.Mixed -- test stubs live next to the checks.
-// phpcs:disable Generic.Files.OneObjectStructurePerFile.MultipleFound -- test stand-in class.
 
 define( 'ABSPATH', __DIR__ . '/' );
 
@@ -35,137 +34,144 @@ function wc_get_price_decimals() {
 
 /**
  * Stand-in for the parts of WC_Product the discount code uses.
+ *
+ * @param string   $regular Regular price.
+ * @param string   $sale    Sale price.
+ * @param int|null $from    Sale start timestamp.
+ * @param int|null $to      Sale end timestamp.
  */
-class Test_Product {
-	/**
-	 * Product data.
-	 *
-	 * @var array
-	 */
-	public $data = array(
-		'regular_price' => '',
-		'sale_price'    => '',
-		'from'          => null,
-		'to'            => null,
-	);
+function make_product( $regular, $sale = '', $from = null, $to = null ) {
+	return new class( $regular, $sale, $from, $to ) {
+		/**
+		 * Product data.
+		 *
+		 * @var array
+		 */
+		public $data = array(
+			'regular_price' => '',
+			'sale_price'    => '',
+			'from'          => null,
+			'to'            => null,
+		);
 
-	/**
-	 * Meta data.
-	 *
-	 * @var array
-	 */
-	public $meta = array();
+		/**
+		 * Meta data.
+		 *
+		 * @var array
+		 */
+		public $meta = array();
 
-	/**
-	 * Number of save() calls.
-	 *
-	 * @var int
-	 */
-	public $saves = 0;
+		/**
+		 * Number of save() calls.
+		 *
+		 * @var int
+		 */
+		public $saves = 0;
 
-	/**
-	 * Sets up the product.
-	 *
-	 * @param string   $regular Regular price.
-	 * @param string   $sale    Sale price.
-	 * @param int|null $from    Sale start timestamp.
-	 * @param int|null $to      Sale end timestamp.
-	 */
-	public function __construct( $regular, $sale = '', $from = null, $to = null ) {
-		$this->data['regular_price'] = $regular;
-		$this->data['sale_price']    = $sale;
-		$this->data['from']          = null === $from ? null : new DateTime( '@' . $from );
-		$this->data['to']            = null === $to ? null : new DateTime( '@' . $to );
-	}
+		/**
+		 * Sets up the product.
+		 *
+		 * @param string   $regular Regular price.
+		 * @param string   $sale    Sale price.
+		 * @param int|null $from    Sale start timestamp.
+		 * @param int|null $to      Sale end timestamp.
+		 */
+		public function __construct( $regular, $sale = '', $from = null, $to = null ) {
+			$this->data['regular_price'] = $regular;
+			$this->data['sale_price']    = $sale;
+			$this->data['from']          = null === $from ? null : new DateTime( '@' . $from );
+			$this->data['to']            = null === $to ? null : new DateTime( '@' . $to );
+		}
 
-	/** Regular price. */
-	public function get_regular_price() {
-		return $this->data['regular_price'];
-	}
+		/** Regular price. */
+		public function get_regular_price() {
+			return $this->data['regular_price'];
+		}
 
-	/** Sale price. */
-	public function get_sale_price() {
-		return $this->data['sale_price'];
-	}
+		/** Sale price. */
+		public function get_sale_price() {
+			return $this->data['sale_price'];
+		}
 
-	/**
-	 * Sets the sale price.
-	 *
-	 * @param string $price Price.
-	 */
-	public function set_sale_price( $price ) {
-		$this->data['sale_price'] = (string) $price;
-	}
+		/**
+		 * Sets the sale price.
+		 *
+		 * @param string $price Price.
+		 */
+		public function set_sale_price( $price ) {
+			$this->data['sale_price'] = (string) $price;
+		}
 
-	/** Sale start. */
-	public function get_date_on_sale_from() {
-		return $this->data['from'];
-	}
+		/** Sale start. */
+		public function get_date_on_sale_from() {
+			return $this->data['from'];
+		}
 
-	/** Sale end. */
-	public function get_date_on_sale_to() {
-		return $this->data['to'];
-	}
+		/** Sale end. */
+		public function get_date_on_sale_to() {
+			return $this->data['to'];
+		}
 
-	/**
-	 * Sets the sale start.
-	 *
-	 * @param int|null $timestamp Timestamp.
-	 */
-	public function set_date_on_sale_from( $timestamp ) {
-		$this->data['from'] = null === $timestamp ? null : new DateTime( '@' . $timestamp );
-	}
+		/**
+		 * Sets the sale start.
+		 *
+		 * @param int|null $timestamp Timestamp.
+		 */
+		public function set_date_on_sale_from( $timestamp ) {
+			$this->data['from'] = null === $timestamp ? null : new DateTime( '@' . $timestamp );
+		}
 
-	/**
-	 * Sets the sale end.
-	 *
-	 * @param int|null $timestamp Timestamp.
-	 */
-	public function set_date_on_sale_to( $timestamp ) {
-		$this->data['to'] = null === $timestamp ? null : new DateTime( '@' . $timestamp );
-	}
+		/**
+		 * Sets the sale end.
+		 *
+		 * @param int|null $timestamp Timestamp.
+		 */
+		public function set_date_on_sale_to( $timestamp ) {
+			$this->data['to'] = null === $timestamp ? null : new DateTime( '@' . $timestamp );
+		}
 
-	/**
-	 * Reads meta.
-	 *
-	 * @param string $key Meta key.
-	 */
-	public function get_meta( $key ) {
-		return isset( $this->meta[ $key ] ) ? $this->meta[ $key ] : '';
-	}
+		/**
+		 * Reads meta.
+		 *
+		 * @param string $key Meta key.
+		 */
+		public function get_meta( $key ) {
+			return isset( $this->meta[ $key ] ) ? $this->meta[ $key ] : '';
+		}
 
-	/**
-	 * Whether meta exists.
-	 *
-	 * @param string $key Meta key.
-	 */
-	public function meta_exists( $key ) {
-		return array_key_exists( $key, $this->meta );
-	}
+		/**
+		 * Whether meta exists.
+		 *
+		 * @param string $key Meta key.
+		 */
+		public function meta_exists( $key ) {
+			return array_key_exists( $key, $this->meta );
+		}
 
-	/**
-	 * Writes meta.
-	 *
-	 * @param string $key   Meta key.
-	 * @param mixed  $value Value.
-	 */
-	public function update_meta_data( $key, $value ) {
-		$this->meta[ $key ] = $value;
-	}
+		/**
+		 * Writes meta.
+		 *
+		 * @param string $key   Meta key.
+		 * @param mixed  $value Value.
+		 */
+		public function update_meta_data( $key, $value ) {
+			$this->meta[ $key ] = $value;
+		}
 
-	/**
-	 * Deletes meta.
-	 *
-	 * @param string $key Meta key.
-	 */
-	public function delete_meta_data( $key ) {
-		unset( $this->meta[ $key ] );
-	}
+		/**
+		 * Deletes meta.
+		 *
+		 * @param string $key Meta key.
+		 */
+		public function delete_meta_data( $key ) {
+			unset( $this->meta[ $key ] );
+		}
 
-	/** Counts saves. */
-	public function save() {
-		++$this->saves;
-	}
+		/** Counts saves. */
+		public function save() {
+			++$this->saves;
+		}
+	};
 }
 
 require dirname( __DIR__ ) . '/includes/class-wc-tag-discount-price.php';
@@ -225,7 +231,7 @@ $june = 1782431999; // 25 Jun 2026, an expired end date left from an earlier sal
 $dec  = 1796083200; // A start date in the future.
 
 // An old, expired native sale: the rule's price must be live, and reverse puts it all back.
-$p = new Test_Product( '18.95', '17.35', null, $june );
+$p = make_product( '18.95', '17.35', null, $june );
 call_private( $manager, 'apply_discount_to_product', array( $p, 'product_tag_sale', $rule ) );
 check( 'expired: sale price set', $p->get_sale_price(), '15.16' );
 check( 'expired: end date cleared', ts( $p->get_date_on_sale_to() ), null );
@@ -238,7 +244,7 @@ check( 'expired: reverse restores no start date', ts( $p->get_date_on_sale_from(
 check( 'expired: reverse removes date meta', $p->meta_exists( '_wc_tag_discount_prev_sale_to' ), false );
 
 // A native sale scheduled for later: cleared while the rule is on, restored after.
-$p = new Test_Product( '50.00', '40.00', $dec, null );
+$p = make_product( '50.00', '40.00', $dec, null );
 call_private( $manager, 'apply_discount_to_product', array( $p, 'product_tag_sale', $rule ) );
 check( 'future: start date cleared', ts( $p->get_date_on_sale_from() ), null );
 check( 'future: sale price set', $p->get_sale_price(), '40' );
@@ -246,7 +252,7 @@ call_private( $manager, 'reverse_discount_on_product', array( $p ) );
 check( 'future: reverse restores start date', ts( $p->get_date_on_sale_from() ), $dec );
 
 // No dates at all: nothing to restore, no dates appear.
-$p = new Test_Product( '13.95' );
+$p = make_product( '13.95' );
 call_private( $manager, 'apply_discount_to_product', array( $p, 'product_tag_sale', $rule ) );
 call_private( $manager, 'apply_discount_to_product', array( $p, 'product_tag_sale', $rule ) );
 check( 'plain: re-apply keeps empty previous dates', $p->get_meta( '_wc_tag_discount_prev_sale_to' ), '' );
@@ -255,7 +261,7 @@ check( 'plain: reverse clears sale price', $p->get_sale_price(), '' );
 check( 'plain: reverse leaves no end date', ts( $p->get_date_on_sale_to() ), null );
 
 // Discounted before 2.0.1 (rule meta but no date meta): dates are still captured on re-apply.
-$p = new Test_Product( '18.95', '15.16', null, $june );
+$p = make_product( '18.95', '15.16', null, $june );
 $p->update_meta_data( '_wc_tag_discount_rule', 'product_tag_sale' );
 $p->update_meta_data( '_wc_tag_discount_prev_sale_price', '17.35' );
 call_private( $manager, 'apply_discount_to_product', array( $p, 'product_tag_sale', $rule ) );
