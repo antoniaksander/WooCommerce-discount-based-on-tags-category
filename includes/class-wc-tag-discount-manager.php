@@ -6,6 +6,13 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 class WC_Tag_Discount_Manager {
 
+	/**
+	 * Product IDs saved during this request, checked once the request ends.
+	 *
+	 * @var int[]
+	 */
+	private $queued_product_ids = array();
+
 	const META_RULE       = '_wc_tag_discount_rule';
 	const META_PREV_SALE  = '_wc_tag_discount_prev_sale_price';
 	const META_PREV_FROM  = '_wc_tag_discount_prev_sale_from';
@@ -1493,21 +1500,24 @@ class WC_Tag_Discount_Manager {
 	}
 
 	/**
-	 * Runs auto_update_product_discount() after WooCommerce has written a saved
-	 * product, not on save_post_product. save_post_product fires inside
-	 * wp_insert_post(), before WooCommerce stores the edit form's fields, so on
-	 * the product edit screen the form's old sale price was written back over
-	 * whatever this hook had just applied or reversed. woocommerce_new_product
-	 * and woocommerce_update_product fire once the product, its prices and its
-	 * terms are saved, from the edit screen, Quick/Bulk Edit, the REST API and
-	 * imports alike.
+	 * A saved product is only queued here; process_queued_products() checks it
+	 * once the whole request has finished. Applying the discount inside the save
+	 * itself lost the result in two ways: on save_post_product the edit form's
+	 * old sale price was written back afterwards (fixed in 2.0.1 by moving to
+	 * woocommerce_update_product), and on woocommerce_update_product a save
+	 * through the REST API (hwd, imports) never kept the discount. At shutdown
+	 * every write of the request is done, whichever path saved the product, so
+	 * the check reads and writes the final state. All three hooks are listened
+	 * to because none of them covers every way a product can be saved.
 	 */
 	private function hook_auto_update() {
+		add_action( 'save_post_product', array( $this, 'auto_update_product_discount' ), 10, 1 );
 		add_action( 'woocommerce_new_product', array( $this, 'auto_update_product_discount' ), 10, 1 );
 		add_action( 'woocommerce_update_product', array( $this, 'auto_update_product_discount' ), 10, 1 );
 	}
 
 	private function unhook_auto_update() {
+		remove_action( 'save_post_product', array( $this, 'auto_update_product_discount' ), 10 );
 		remove_action( 'woocommerce_new_product', array( $this, 'auto_update_product_discount' ), 10 );
 		remove_action( 'woocommerce_update_product', array( $this, 'auto_update_product_discount' ), 10 );
 	}
@@ -1601,7 +1611,15 @@ class WC_Tag_Discount_Manager {
 		);
 	}
 
+	/**
+	 * Queues a saved product for process_queued_products(). Each product is
+	 * checked once per request, however many save hooks fired for it.
+	 *
+	 * @param int $post_id Product ID.
+	 */
 	public function auto_update_product_discount( $post_id ) {
+		$post_id = (int) $post_id;
+
 		if ( $this->is_auto_apply_paused() ) {
 			return;
 		}
@@ -1614,6 +1632,32 @@ class WC_Tag_Discount_Manager {
 			return;
 		}
 
+		if ( empty( $this->queued_product_ids ) ) {
+			add_action( 'shutdown', array( $this, 'process_queued_products' ), 0 );
+		}
+		$this->queued_product_ids[ $post_id ] = $post_id;
+	}
+
+	/**
+	 * Runs at shutdown, after every save of the request has been written.
+	 */
+	public function process_queued_products() {
+		$product_ids              = $this->queued_product_ids;
+		$this->queued_product_ids = array();
+
+		foreach ( $product_ids as $post_id ) {
+			$this->update_product_discount( $post_id );
+		}
+	}
+
+	/**
+	 * Applies the last matching active rule to a product, or reverses its
+	 * discount when no rule matches any more.
+	 *
+	 * @param int $post_id Product ID.
+	 */
+	private function update_product_discount( $post_id ) {
+		clean_post_cache( $post_id );
 		$product = wc_get_product( $post_id );
 		if ( ! $product ) {
 			return;
