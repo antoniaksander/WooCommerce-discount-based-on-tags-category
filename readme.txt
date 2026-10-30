@@ -6,7 +6,7 @@ Tested up to: 7.0.2
 Requires PHP: 7.4
 WC requires at least: 5.0
 WC tested up to: 10.7
-Stable tag: 1.10.1
+Stable tag: 2.0.0
 License: GPLv2 or later
 License URI: https://www.gnu.org/licenses/gpl-2.0.html
 
@@ -61,12 +61,10 @@ Yes. On the Dashboard, under Price Rounding, pick a mode and a price ending. Rou
 
 == Changelog ==
 
-= 1.10.1 =
-* Fix: rules with a future "Apply at" date were treated as live by "Apply Discounts Now", by every product save and by the Dashboard preview, so a rule scheduled weeks ahead (e.g. Black Friday) went on sale the first time anyone pressed Apply. A scheduled rule now only starts at its apply date, through its own scheduled event. "Apply This Rule Now" is disabled on it, the Rules tab marks it as Scheduled, and "Apply Discounts Now" removes any discount a scheduled rule already left on products.
-
-= 1.10.0 =
+= 2.0.0 =
 * Add optional price rounding (Dashboard › Price Rounding): off, round down, nearest or up, to x.x0/x.x5, x.x0, x.00/x.25/x.50/x.75, x.00/x.50, x.45/x.95, x.95, x.99 or whole amounts. Off by default, so existing stores see no change. The Dashboard preview and the real apply share one calculation, and a rounded price never reaches the regular price.
 * Fix: discounted prices were calculated with floating-point maths, so some came out one cent low (149.95 at 10% off gave 134.95 instead of 134.96; 224.95 gave 202.45 instead of 202.46). Prices are now calculated in whole cents with normal half-up rounding. Run "Apply Discounts Now" once to correct existing discounted prices.
+* Fix: rules with a future "Apply at" date were treated as live by "Apply Discounts Now", by every product save and by the Dashboard preview, so a rule scheduled weeks ahead (e.g. Black Friday) went on sale the first time anyone pressed Apply. A scheduled rule now only starts at its apply date, through its own scheduled event. "Apply This Rule Now" is disabled on it, the Rules tab marks it as Scheduled, and "Apply Discounts Now" removes any discount a scheduled rule already left on products.
 
 = 1.9.1 =
 * Fix: coding-standards violations that had been failing CI on every push since 1.7.0 (multi-line PHP embedded inside HTML `onsubmit` attributes). No functional change -- the confirmation dialogs on Apply/Clear All buttons produce identical output; verified against real store data on the dev site.
